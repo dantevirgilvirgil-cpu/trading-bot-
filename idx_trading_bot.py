@@ -35,9 +35,9 @@ warnings.filterwarnings('ignore')
 load_dotenv()
 
 # ─── CONFIG ─────────────────────────────────────────────────────────────────
-TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
-WIB = pytz.timezone("Asia/Jakarta")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+BOT_CHAT_ID = os.getenv("CHAT_ID", "")
+TZ_JAKARTA = pytz.timezone("Asia/Jakarta")
 
 # IDX Watchlist - Saham pilihan
 WATCHLIST = [
