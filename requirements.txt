@@ -5,3 +5,6 @@ ta
 requests
 schedule
 python-dotenv
+matplotlib
+mplfinance
+pytz
