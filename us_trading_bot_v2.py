@@ -6,14 +6,14 @@ Mode: Screener + Alert (manual entry)
 Signals: Hawk1, Break Top, Green Bull, Buy Magenta, Smart Money, Institutional
 """
 
-import yfinance as yf
-import pandas as pd
-import numpy as np
-import requests
-import time
-import json
-from datetime import datetime, timedelta
-import pytz
+import os yfinance as yf
+import os pandas as pd
+import os numpy as np
+import os requests
+import os time
+import os json
+from datetime import os datetime, timedelta
+import os pytz
 
 # ============================================================
 # ⚙️ CONFIG — EDIT DI SINI
