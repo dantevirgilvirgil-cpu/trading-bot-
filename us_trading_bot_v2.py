@@ -18,8 +18,9 @@ import pytz
 # ============================================================
 # ⚙️ CONFIG — EDIT DI SINI
 # ============================================================
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"   # @BotFather
-TELEGRAM_CHAT_ID   = "YOUR_CHAT_ID_HERE"      # @userinfobot
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
+TELEGRAM_CHAT_ID   = os.getenv("TELEGRAM_CHAT_ID", "YOUR_CHAT_ID_HERE")
+     
 
 # Scan interval
 SCAN_INTERVAL_SECONDS = 300   # 5 menit
