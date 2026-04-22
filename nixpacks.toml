@@ -1,5 +1,1 @@
-[phases.install]
-cmds = ["pip install -r requirements.txt"]
 
-[start]
-cmd = "python robot_trading_bei.py"
