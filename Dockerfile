@@ -3,4 +3,4 @@ WORKDIR /app
 COPY requirements.text requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-CMD ["python", "robot_trading_bei-4.py"]
+CMD ["python", "idx_dashboard_v4.py"]
