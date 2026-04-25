@@ -3,4 +3,4 @@ WORKDIR /app
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-CMD ["python", "main-4.py"]
+CMD ["python", "main-7.py"]
