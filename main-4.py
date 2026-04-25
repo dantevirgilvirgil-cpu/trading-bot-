@@ -348,7 +348,16 @@ def run_bot():
     for cmd,fn in [("start",start),("help",help_cmd),("signal",signal_cmd),("chart",chart_cmd),("screener",screener_cmd),("volume",volume_cmd),("trend",trend_cmd)]:
         tg.add_handler(CommandHandler(cmd,fn))
     log.info("Bot polling..."); tg.run_polling(allowed_updates=Update.ALL_TYPES)
-
+TF_MAP={
+  "5M":("5m","5d"),
+  "15M":("15m","5d"), 
+  "30M":("30m","10d"),
+  "1H":("60m","60d"),   # ← dari 20d jadi 60d
+  "4H":("60m","60d"),   # ← dari 30d jadi 60d
+  "D":("1d","1y"),      # ← dari 90d jadi 1y
+  "W":("1wk","5y"),     # ← dari 2y jadi 5y
+  "M":("1mo","10y")     # ← dari 5y jadi 10y
+}
 if __name__=="__main__":
     log.info(f"IDX QUANT v4 port {PORT}")
     threading.Thread(target=run_flask,daemon=True).start()
