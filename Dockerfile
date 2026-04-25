@@ -3,4 +3,5 @@ WORKDIR /app
 COPY requirements.text requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-CMD ["python", "idx_dashboard_v4"]
+CMD ["python", "idx_dashboard_v4.html"]
+.h
