@@ -784,6 +784,11 @@ app=Flask(__name__)
 def index():
     f=os.path.join(os.path.dirname(__file__),"idx_dashboard_v4.html")
     return send_file(f) if os.path.exists(f) else ("IDX QUANT v3 FAST",200)
+@app.route("/dashboard")
+@app.route("/pixel")
+def pixel_dashboard():
+    f=os.path.join(os.path.dirname(__file__),"pixel_dashboard.html")
+    return send_file(f) if os.path.exists(f) else ("pixel_dashboard.html not found",404)
 @app.route("/health")
 def health(): return jsonify({"status":"ok","version":"v3-fast","alerts":len(alerts_db),
                                "auto_users":len(auto_users),"cache_size":len(_data_cache),
