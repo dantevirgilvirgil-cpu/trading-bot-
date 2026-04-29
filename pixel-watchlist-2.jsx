@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-// ─── DEFAULT WATCHLIST (IDX + US) ────────────────────────────────────────────
+// --- DEFAULT WATCHLIST (IDX + US) ---
 const DEFAULT_TICKERS = [
   "TAPG.JK","DSNG.JK","MEDC.JK","ITMG.JK","PTBA.JK",
   "NCKL.JK","MBMA.JK","ANTM.JK","INCO.JK","MDKA.JK",
