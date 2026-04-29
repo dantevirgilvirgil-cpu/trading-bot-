@@ -3,4 +3,4 @@ WORKDIR /app
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-CMD ["python", "pixel-watchlist-2.jsx"]
+CMD ["python", "pixel-watchlist-v2.jsx"]
