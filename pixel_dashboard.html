@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DANTEBADAI PIXEL WATCHLIST</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #080809; --card: #0b0b0d; --border: #141416;
+    --text: #ddd; --dim: #252525; --dimmer: #141414;
+    --bull: #43A047; --bull-dark: #1B5E20;
+    --bear: #E53935; --bear-dark: #7B0000;
+    --neutral: #F9A825;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; padding: 14px 12px; min-height: 100vh; }
+
+  /* HEADER */
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+  .title { font-size: 16px; font-weight: 700; letter-spacing: 3px; }
+  .title span { color: var(--bull); }
+  .subtitle { font-size: 8px; color: var(--dimmer); letter-spacing: 2px; margin-top: 3px; }
+  .btn-refresh {
+    background: #071407; border: 1px solid #43A04755; color: var(--bull);
+    font-size: 9px; padding: 5px 12px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; letter-spacing: 1px; transition: all 0.2s;
+  }
+  .btn-refresh:hover { background: #0a1f0a; border-color: var(--bull); }
+  .btn-refresh:disabled { background: #0a0a0a; border-color: #1a1a1a; color: #252525; cursor: not-allowed; }
+
+  /* SUMMARY BAR */
+  .summary {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 10px;
+    padding: 7px 12px; background: #0a0a0c; border-radius: 5px; border: 1px solid #141414;
+    flex-wrap: wrap;
+  }
+  .summary-item { display: flex; align-items: center; gap: 5px; }
+  .summary-dot { width: 7px; height: 7px; border-radius: 1px; }
+  .summary-count { font-size: 14px; font-weight: 700; }
+  .summary-label { font-size: 8px; color: var(--dim); }
+  .sort-group { margin-left: auto; display: flex; gap: 5px; }
+  .btn-sort {
+    background: transparent; border: 1px solid #1a1a1a; color: #2a2a2a;
+    font-size: 8px; padding: 2px 7px; border-radius: 3px; cursor: pointer;
+    font-family: inherit; letter-spacing: 1px; transition: all 0.2s;
+  }
+  .btn-sort.active { background: #131f13; border-color: #43A04755; color: var(--bull); }
+
+  /* ADD INPUT */
+  .add-row { display: flex; gap: 6px; margin-bottom: 12px; }
+  .add-input {
+    flex: 1; background: #0a0a0c; border: 1px solid #161616; color: #888;
+    font-size: 10px; padding: 6px 10px; border-radius: 4px; outline: none;
+    font-family: inherit; letter-spacing: 1px;
+  }
+  .add-input:focus { border-color: #43A04755; }
+  .btn-add {
+    background: #071407; border: 1px solid #43A04755; color: var(--bull);
+    font-size: 10px; padding: 6px 12px; border-radius: 4px; cursor: pointer;
+    font-family: inherit; letter-spacing: 1px;
+  }
+  .btn-add:hover { background: #0a1f0a; }
+
+  /* LEGEND */
+  .legend { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-pixels { display: flex; flex-direction: column; gap: 1px; }
+  .legend-px { width: 4px; height: 4px; border-radius: 1px; }
+  .legend-label { color: var(--dim); font-size: 8px; letter-spacing: 1px; }
+
+  /* GRID */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+
+  /* CARD */
+  .card {
+    background: var(--card); border-radius: 6px; padding: 10px 10px 8px;
+    border: 1px solid #1a1a1a; border-top: 2px solid #1a1a1a;
+    transition: border-color 0.4s;
+    position: relative;
+  }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px; }
+  .card-sym { font-weight: 700; font-size: 13px; letter-spacing: 1.5px; }
+  .card-mkt { color: #1e1e1e; font-size: 8px; border: 1px solid #181818; padding: 0 3px; border-radius: 2px; margin-left: 4px; }
+  .btn-remove { background: none; border: none; color: #1e1e1e; cursor: pointer; font-size: 11px; padding: 0; line-height: 1; }
+  .btn-remove:hover { color: #444; }
+
+  .card-loading { height: 90px; display: flex; align-items: center; justify-content: center; }
+  .loading-text { color: #1e1e1e; font-size: 9px; letter-spacing: 2px; animation: pulse 1s infinite; }
+  .card-error { color: #5a1a1a; font-size: 9px; padding: 4px 0; }
+
+  .price-row { display: flex; align-items: baseline; gap: 5px; margin-bottom: 5px; }
+  .price { font-size: 15px; font-weight: 700; letter-spacing: 0.5px; }
+  .pct { font-size: 11px; font-weight: 600; }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 6px 2px 5px; border-radius: 3px; margin-bottom: 5px;
+    border: 1px solid transparent;
+  }
+  .badge-dot { width: 5px; height: 5px; border-radius: 1px; }
+  .badge-label { font-size: 8px; font-weight: 700; letter-spacing: 1.5px; }
+
+  .indicators { display: flex; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+  .ind { font-size: 8px; }
+  .ind-key { color: #2d2d2d; }
+  .ind-val { font-weight: 700; }
+
+  /* PIXEL PANEL */
+  .pixel-panel {
+    background: #060608; border-radius: 3px; padding: 3px 3px 2px;
+    overflow: hidden; position: relative;
+  }
+  .scanlines {
+    position: absolute; inset: 0; pointer-events: none; z-index: 2;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.25) 2px, rgba(0,0,0,0.25) 3px);
+  }
+  .pixel-label { font-size: 6px; color: #1a1a1a; letter-spacing: 2px; margin-bottom: 2px; }
+  .pixel-bars { display: flex; gap: 1px; align-items: flex-end; height: 56px; position: relative; z-index: 1; }
+  .pixel-col { display: flex; flex-direction: column-reverse; align-items: center; gap: 1px; height: 56px; flex-shrink: 0; width: 5px; }
+  .pixel-px { width: 3px; height: 3px; border-radius: 1px; }
+  .momentum-label { font-size: 7px; text-align: right; margin-top: 2px; letter-spacing: 1px; }
+
+  .footer { text-align: center; margin-top: 18px; color: #141414; font-size: 8px; letter-spacing: 2px; }
+
+  @keyframes pulse { 0%,100%{opacity:0.3} 50%{opacity:0.9} }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+  .card { animation: fadeIn 0.3s ease; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- HEADER -->
+  <div class="header">
+    <div>
+      <div class="title">DANTEBADAI <span>PIXEL</span> WATCHLIST</div>
+      <div class="subtitle" id="subtitle">T1MO PIXEL ENGINE v2.0 · FETCHING DATA...</div>
+    </div>
+    <button class="btn-refresh" id="btnRefresh" onclick="refreshAll()">⟳ REFRESH ALL</button>
+  </div>
+
+  <!-- SUMMARY -->
+  <div class="summary">
+    <div class="summary-item">
+      <div class="summary-dot" style="background:#43A047;box-shadow:0 0 5px #43A047"></div>
+      <span class="summary-count" id="countBull" style="color:#43A047">0</span>
+      <span class="summary-label">BULL</span>
+    </div>
+    <div class="summary-item">
+      <div class="summary-dot" style="background:#F9A825;box-shadow:0 0 5px #F9A825"></div>
+      <span class="summary-count" id="countNetral" style="color:#F9A825">0</span>
+      <span class="summary-label">NETRAL</span>
+    </div>
+    <div class="summary-item">
+      <div class="summary-dot" style="background:#E53935;box-shadow:0 0 5px #E53935"></div>
+      <span class="summary-count" id="countBear" style="color:#E53935">0</span>
+      <span class="summary-label">BEAR</span>
+    </div>
+    <div class="sort-group">
+      <button class="btn-sort active" id="sort-momentum" onclick="setSort('momentum')">MOM</button>
+      <button class="btn-sort" id="sort-pct" onclick="setSort('pct')">%CHG</button>
+      <button class="btn-sort" id="sort-alpha" onclick="setSort('alpha')">A-Z</button>
+    </div>
+  </div>
+
+  <!-- ADD ROW -->
+  <div class="add-row">
+    <input class="add-input" id="addInput" placeholder="Tambah ticker... BBCA.JK / GOTO.JK / NVDA"
+      onkeydown="if(event.key==='Enter')addTicker()">
+    <button class="btn-add" onclick="addTicker()">+ ADD</button>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend">
+    <div class="legend-item">
+      <div class="legend-pixels">
+        <div class="legend-px" style="background:#7B0000;opacity:1"></div>
+        <div class="legend-px" style="background:#7B0000;opacity:0.6"></div>
+        <div class="legend-px" style="background:#7B0000;opacity:0.3"></div>
+      </div>
+      <span class="legend-label">JUAL KUAT</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-pixels">
+        <div class="legend-px" style="background:#E53935;opacity:1"></div>
+        <div class="legend-px" style="background:#E53935;opacity:0.6"></div>
+        <div class="legend-px" style="background:#E53935;opacity:0.3"></div>
+      </div>
+      <span class="legend-label">JUAL</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-pixels">
+        <div class="legend-px" style="background:#F9A825;opacity:1"></div>
+        <div class="legend-px" style="background:#F9A825;opacity:0.6"></div>
+        <div class="legend-px" style="background:#F9A825;opacity:0.3"></div>
+      </div>
+      <span class="legend-label">NETRAL</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-pixels">
+        <div class="legend-px" style="background:#43A047;opacity:1"></div>
+        <div class="legend-px" style="background:#43A047;opacity:0.6"></div>
+        <div class="legend-px" style="background:#43A047;opacity:0.3"></div>
+      </div>
+      <span class="legend-label">BELI</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-pixels">
+        <div class="legend-px" style="background:#1B5E20;opacity:1"></div>
+        <div class="legend-px" style="background:#1B5E20;opacity:0.6"></div>
+        <div class="legend-px" style="background:#1B5E20;opacity:0.3"></div>
+      </div>
+      <span class="legend-label">BELI KUAT</span>
+    </div>
+  </div>
+
+  <!-- GRID -->
+  <div class="grid" id="grid"></div>
+
+  <div class="footer">DANTEBADAI BOT · PIXEL ENGINE v2.0 · DATA: YAHOO FINANCE</div>
+</div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────────────────────────────────────
+let TICKERS = [
+  "TAPG.JK","DSNG.JK","MEDC.JK","ITMG.JK","PTBA.JK",
+  "NCKL.JK","MBMA.JK","ANTM.JK","INCO.JK","MDKA.JK",
+  "BULL.JK","TMAS.JK","PLTR","KOTA.JK"
+];
+
+let stockData = {};
+let sortMode = "momentum";
+let isRefreshing = false;
+
+// ─── YAHOO FINANCE FETCH ──────────────────────────────────────────────────────
+async function fetchYahoo(symbol) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=60d`;
+  const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+  const res = await fetch(proxy, { signal: AbortSignal.timeout(12000) });
+  if (!res.ok) throw new Error("proxy error");
+  const json = await res.json();
+  const data = JSON.parse(json.contents);
+  const result = data?.chart?.result?.[0];
+  if (!result) throw new Error("no data");
+  return {
+    closes: result.indicators.quote[0].close,
+    volumes: result.indicators.quote[0].volume,
+    meta: result.meta
+  };
+}
+
+// ─── INDICATORS ───────────────────────────────────────────────────────────────
+function ema(arr, period) {
+  const k = 2 / (period + 1);
+  const clean = arr.filter(v => v != null);
+  if (clean.length < period) return arr.map(() => null);
+  let prev = clean.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const result = [];
+  let filled = 0;
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] == null) { result.push(null); continue; }
+    filled++;
+    if (filled < period) { result.push(null); continue; }
+    if (filled === period) { result.push(prev); continue; }
+    prev = arr[i] * k + prev * (1 - k);
+    result.push(prev);
+  }
+  return result;
+}
+
+function computeRSI(c, p = 14) {
+  if (c.length < p + 1) return 50;
+  let g = 0, l = 0;
+  for (let i = c.length - p; i < c.length; i++) {
+    const d = c[i] - c[i-1];
+    if (d > 0) g += d; else l -= d;
+  }
+  return 100 - 100 / (1 + g / (l || 1));
+}
+
+function computeStoch(c, p = 14) {
+  const sl = c.slice(-p);
+  const lo = Math.min(...sl), hi = Math.max(...sl);
+  return hi === lo ? 50 : ((c[c.length-1] - lo) / (hi - lo)) * 100;
+}
+
+function computeMACD(c) {
+  const e12 = ema(c, 12), e26 = ema(c, 26);
+  const ml = e12.map((v, i) => (v != null && e26[i] != null) ? v - e26[i] : null);
+  const valid = ml.filter(v => v != null);
+  const sig = ema(valid, 9);
+  return { macd: ml[ml.length-1] || 0, signal: sig[sig.length-1] || 0 };
+}
+
+function computeMomentum(c, v) {
+  if (c.length < 27) return 0;
+  const rsi = computeRSI(c), stoch = computeStoch(c);
+  const { macd, signal } = computeMACD(c);
+  const pc = c.length >= 2 ? (c[c.length-1] - c[c.length-2]) / (c[c.length-2] || 1) : 0;
+  const rsiN = (rsi - 50) / 50;
+  const stochN = (stoch - 50) / 50;
+  const macdN = Math.tanh((macd - signal) * 2);
+  const priceN = Math.tanh(pc * 20);
+  const composite = rsiN*0.25 + stochN*0.2 + macdN*0.35 + priceN*0.2;
+  const recentV = v.slice(-5).filter(Boolean);
+  const avgV = recentV.reduce((a,b) => a+b, 0) / (recentV.length || 1);
+  const vf = Math.min(2, Math.max(0.5, (v[v.length-1] || avgV) / (avgV || 1)));
+  return Math.max(-1, Math.min(1, composite * vf));
+}
+
+function buildBars(closes, volumes, n = 40) {
+  const bars = [];
+  const start = Math.max(27, closes.length - n);
+  for (let i = start; i < closes.length; i++) {
+    const c = closes.slice(0, i+1), vv = volumes.slice(0, i+1);
+    const m = computeMomentum(c, vv);
+    const maxV = Math.max(...volumes.slice(Math.max(0, i-20), i+1).filter(Boolean), 1);
+    const vol = Math.min(1, (volumes[i] || 0) / maxV);
+    bars.push({ momentum: m, vol });
+  }
+  return bars;
+}
+
+// ─── COLOR / BADGE ────────────────────────────────────────────────────────────
+function mColor(m) {
+  if (m < -0.6) return "#7B0000";
+  if (m < -0.2) return "#E53935";
+  if (m <  0.2) return "#F9A825";
+  if (m <  0.6) return "#43A047";
+  return "#1B5E20";
+}
+function mLabel(m) {
+  if (m < -0.6) return "JUAL KUAT ▼▼";
+  if (m < -0.2) return "JUAL ▼";
+  if (m <  0.2) return "NETRAL ─";
+  if (m <  0.6) return "BELI ▲";
+  return "BELI KUAT ▲▲";
+}
+function getBadge(m) {
+  if (m >  0.6) return { label:"HAWK1 🦅",   color:"#1B5E20", bg:"#071207" };
+  if (m >  0.2) return { label:"GREEN BULL", color:"#43A047", bg:"#071407" };
+  if (m < -0.6) return { label:"BEAR 🐻",    color:"#7B0000", bg:"#1a0505" };
+  if (m < -0.2) return { label:"SELL ▼",     color:"#E53935", bg:"#160404" };
+  return { label:"WAIT ─", color:"#777", bg:"#101010" };
+}
+
+// ─── RENDER PIXEL BARS ────────────────────────────────────────────────────────
+function renderPixelBars(bars) {
+  return bars.map(b => {
+    const color = mColor(b.momentum);
+    const maxH = 56, px = 3, gap = 1;
+    const filled = Math.max(px, Math.round(Math.abs(b.momentum) * Math.max(0.3, b.vol) * maxH));
+    const count = Math.max(1, Math.floor(filled / (px + gap)));
+    const pixels = Array.from({length: count}, (_, i) => {
+      const opacity = 0.3 + 0.7 * ((i+1) / count);
+      const glow = i === count-1 ? `box-shadow:0 0 4px ${color}99;` : '';
+      return `<div class="pixel-px" style="background:${color};opacity:${opacity};${glow}"></div>`;
+    }).join('');
+    return `<div class="pixel-col">${pixels}</div>`;
+  }).join('');
+}
+
+// ─── RENDER CARD ──────────────────────────────────────────────────────────────
+function renderCard(d) {
+  const isIDX = d.symbol.endsWith('.JK');
+  const sym = d.symbol.replace('.JK','');
+
+  if (d.loading) {
+    return `<div class="card" id="card-${d.symbol}">
+      <div class="card-header">
+        <div><span class="card-sym">${sym}</span><span class="card-mkt">${isIDX?'IDX':'US'}</span></div>
+        <button class="btn-remove" onclick="removeTicker('${d.symbol}')">✕</button>
+      </div>
+      <div class="card-loading"><span class="loading-text">LOADING...</span></div>
+    </div>`;
+  }
+
+  if (d.error) {
+    return `<div class="card" id="card-${d.symbol}">
+      <div class="card-header">
+        <div><span class="card-sym">${sym}</span><span class="card-mkt">${isIDX?'IDX':'US'}</span></div>
+        <button class="btn-remove" onclick="removeTicker('${d.symbol}')">✕</button>
+      </div>
+      <div class="card-error">⚠ gagal fetch — <span onclick="reloadTicker('${d.symbol}')" style="cursor:pointer;color:#555">retry</span></div>
+    </div>`;
+  }
+
+  const latestM = d.bars.length ? d.bars[d.bars.length-1].momentum : 0;
+  const color = mColor(latestM);
+  const bdg = getBadge(latestM);
+  const pctColor = d.pct >= 0 ? '#43A047' : '#E53935';
+  const priceStr = isIDX ? Number(d.price).toLocaleString('id-ID') : Number(d.price).toFixed(2);
+
+  const rsiColor = d.rsi > 70 ? '#E53935' : d.rsi < 30 ? '#43A047' : '#555';
+  const stochColor = d.stoch > 80 ? '#E53935' : d.stoch < 20 ? '#43A047' : '#555';
+  const macdColor = d.macd > 0 ? '#43A047' : '#E53935';
+
+  return `<div class="card" id="card-${d.symbol}" style="border-color:${color}2a;border-top-color:${color}88">
+    <div class="card-header">
+      <div><span class="card-sym">${sym}</span><span class="card-mkt">${isIDX?'IDX':'US'}</span></div>
+      <button class="btn-remove" onclick="removeTicker('${d.symbol}')">✕</button>
+    </div>
+    <div class="price-row">
+      <span class="price">${priceStr}</span>
+      <span class="pct" style="color:${pctColor}">${d.pct>=0?'+':''}${Number(d.pct).toFixed(2)}%</span>
+    </div>
+    <div class="badge" style="background:${bdg.bg};border-color:${bdg.color}40">
+      <div class="badge-dot" style="background:${bdg.color};box-shadow:0 0 5px ${bdg.color}"></div>
+      <span class="badge-label" style="color:${bdg.color}">${bdg.label}</span>
+    </div>
+    <div class="indicators">
+      <span class="ind"><span class="ind-key">RSI </span><span class="ind-val" style="color:${rsiColor}">${Number(d.rsi).toFixed(0)}</span></span>
+      <span class="ind"><span class="ind-key">STOCH </span><span class="ind-val" style="color:${stochColor}">${Number(d.stoch).toFixed(0)}</span></span>
+      <span class="ind"><span class="ind-key">MACD </span><span class="ind-val" style="color:${macdColor}">${Number(d.macd).toFixed(1)}</span></span>
+    </div>
+    <div class="pixel-panel">
+      <div class="scanlines"></div>
+      <div class="pixel-label">PIXEL MOMENTUM · 40D</div>
+      <div class="pixel-bars">${renderPixelBars(d.bars)}</div>
+      <div class="momentum-label" style="color:${color}">${mLabel(latestM)}</div>
+    </div>
+  </div>`;
+}
+
+// ─── SORT & RENDER GRID ───────────────────────────────────────────────────────
+function getSorted() {
+  return [...TICKERS]
+    .map(s => stockData[s] || { symbol:s, loading:true, bars:[], error:false })
+    .sort((a, b) => {
+      if (sortMode === 'alpha') return a.symbol.localeCompare(b.symbol);
+      if (sortMode === 'pct')   return (b.pct||0) - (a.pct||0);
+      const ma = a.bars.length ? a.bars[a.bars.length-1].momentum : -99;
+      const mb = b.bars.length ? b.bars[b.bars.length-1].momentum : -99;
+      return mb - ma;
+    });
+}
+
+function renderGrid() {
+  const sorted = getSorted();
+  document.getElementById('grid').innerHTML = sorted.map(renderCard).join('');
+
+  // update summary
+  let bull=0, netral=0, bear=0;
+  sorted.forEach(d => {
+    if (!d.bars.length) return;
+    const m = d.bars[d.bars.length-1].momentum;
+    if (m > 0.2) bull++; else if (m < -0.2) bear++; else netral++;
+  });
+  document.getElementById('countBull').textContent = bull;
+  document.getElementById('countNetral').textContent = netral;
+  document.getElementById('countBear').textContent = bear;
+}
+
+// ─── LOAD TICKER ──────────────────────────────────────────────────────────────
+async function reloadTicker(sym) {
+  stockData[sym] = { symbol:sym, loading:true, bars:[], error:false };
+  renderGrid();
+  try {
+    const { closes, volumes, meta } = await fetchYahoo(sym);
+    const clean = closes.map((c,i) => ({c, v: volumes[i]})).filter(x => x.c != null);
+    const c = clean.map(x=>x.c), v = clean.map(x=>x.v);
+    const price = meta.regularMarketPrice || c[c.length-1];
+    const prev  = meta.chartPreviousClose  || c[c.length-2];
+    const pct   = prev ? ((price-prev)/prev)*100 : 0;
+    const rsi   = computeRSI(c), stoch = computeStoch(c);
+    const { macd } = computeMACD(c);
+    const bars  = buildBars(c, v, 40);
+    stockData[sym] = { symbol:sym, price, pct, rsi, stoch, macd, bars, loading:false, error:false };
+  } catch(e) {
+    stockData[sym] = { symbol:sym, loading:false, bars:[], error:true };
+  }
+  renderGrid();
+}
+
+async function refreshAll() {
+  if (isRefreshing) return;
+  isRefreshing = true;
+  const btn = document.getElementById('btnRefresh');
+  btn.disabled = true; btn.textContent = '⟳ LOADING...';
+  document.getElementById('subtitle').textContent = 'T1MO PIXEL ENGINE v2.0 · FETCHING DATA...';
+
+  await Promise.all(TICKERS.map(s => reloadTicker(s)));
+
+  isRefreshing = false;
+  btn.disabled = false; btn.textContent = '⟳ REFRESH ALL';
+  const now = new Date().toLocaleTimeString('id-ID');
+  document.getElementById('subtitle').textContent = `T1MO PIXEL ENGINE v2.0 · UPDATED ${now}`;
+}
+
+// ─── ADD / REMOVE ─────────────────────────────────────────────────────────────
+function addTicker() {
+  const inp = document.getElementById('addInput');
+  const sym = inp.value.trim().toUpperCase();
+  if (!sym || TICKERS.includes(sym)) return;
+  TICKERS.push(sym);
+  inp.value = '';
+  reloadTicker(sym);
+}
+
+function removeTicker(sym) {
+  TICKERS = TICKERS.filter(t => t !== sym);
+  delete stockData[sym];
+  renderGrid();
+}
+
+function setSort(mode) {
+  sortMode = mode;
+  document.querySelectorAll('.btn-sort').forEach(b => b.classList.remove('active'));
+  document.getElementById('sort-'+mode).classList.add('active');
+  renderGrid();
+}
+
+// ─── INIT ─────────────────────────────────────────────────────────────────────
+renderGrid();
+refreshAll();
+</script>
+</body>
+</html>
