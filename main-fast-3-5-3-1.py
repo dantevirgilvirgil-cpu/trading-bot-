@@ -578,6 +578,9 @@ async def help_cmd(u,c):
         "*Market:*\n"
         "`/volume` — Top volume IDX\n"
         "`/trend` — Trend market + IHSG\n\n"
+        "*Flip Alert:*\n"
+        "`/flipstatus` — Status flip pixel semua saham\n"
+        "🔔 Auto alert flip tiap 30 menit (aktifkan /auto on)\n\n"
         "Score: 1-3 Lemah | 4-5 OK | 6+ 🔥\n"
         "⚠️ LOW LIQUIDITY = saham illiquid/gorengan\n"
         "⚡ v3: Parallel 10 thread + data cache 5 menit",
