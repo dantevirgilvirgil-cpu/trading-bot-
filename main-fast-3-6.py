@@ -84,6 +84,23 @@ alerts_db=load_json(ALERT_FILE)
 watchlist_db=load_json(WL_FILE)
 auto_users=load_json(AUTO_FILE)
 
+# == FLIP ALERT STATE ==
+FLIP_FILE="/tmp/flip_state.json"
+flip_state_db=load_json(FLIP_FILE)  # {code: "bull"/"bear"/"neutral"}
+
+def get_trend_state(code, tf="D"):
+    try:
+        r=get_signal(code, tf)
+        if "error" in r: return None
+        closes=r["df"]["Close"].squeeze()
+        e9=r["ema9"]; e20=r["ema20"]; e50=r["ema50"]
+        c=float(closes.iloc[-1])
+        e9v=float(e9.iloc[-1]); e20v=float(e20.iloc[-1]); e50v=float(e50.iloc[-1])
+        if c>e9v and e9v>e20v and e20v>e50v: return "bull"
+        elif c<e9v and e9v<e20v and e20v<e50v: return "bear"
+        else: return "neutral"
+    except: return None
+
 # ══ INDICATORS ══
 def ema(s,p): return s.ewm(span=p,adjust=False).mean()
 def rsi(s,p=14):
@@ -219,103 +236,35 @@ def generate_chart(code, tf="D", volume_spikes=None):
     macd_sg=r["macd_sg"].iloc[-n:]; macd_h=r["macd_h"].iloc[-n:]
     sk=r["stoch_k"].iloc[-n:]; sd=r["stoch_d"].iloc[-n:]
     idx=range(n)
+    BG="#0a0e14"; BG2="#0f1520"; GRID="#1a2438"
+    GREEN="#26a69a"; RED="#ef5350"; ORANGE="#f07020"
+    BLUE="#2288cc"; PINK="#e040c8"; TEXT="#c8d6e5"; TEXT2="#7a90a8"
+    DARK_GREEN="#1a5c3a"; DARK_RED="#8b0000"
 
-    # ══ WHITE TRADINGVIEW THEME ══
-    BG="#ffffff"        # pure white background
-    BG2="#f8f9fa"       # panel background (very light gray)
-    GRID="#e0e3eb"      # grid lines (light gray)
-    GREEN="#089981"     # TradingView green
-    RED="#f23645"       # TradingView red
-    ORANGE="#ef6c00"    # MA20 orange
-    BLUE="#1976d2"      # MA50 blue
-    PINK="#9c27b0"      # MA9 purple
-    TEXT="#131722"      # dark text
-    TEXT2="#555f6d"     # secondary text
-    MID_GREEN="#1b5e20" # vol spike buy
-    MID_RED="#b71c1c"   # vol spike sell
-    GRAY="#cfd8dc"      # neutral pixel
+    fig=plt.figure(figsize=(14,10),facecolor=BG)
+    gs=GridSpec(4,1,figure=fig,height_ratios=[5,1.2,1.2,1.2],hspace=0.04)
+    ax1=fig.add_subplot(gs[0]); ax2=fig.add_subplot(gs[1])
+    ax3=fig.add_subplot(gs[2]); ax4=fig.add_subplot(gs[3])
+    for ax in [ax1,ax2,ax3,ax4]:
+        ax.set_facecolor(BG2); ax.tick_params(colors=TEXT2,labelsize=7)
+        for s in ax.spines.values(): s.set_color(GRID)
+        ax.grid(True,color=GRID,linewidth=0.4,alpha=0.6)
 
     opens=df["Open"].squeeze().values; closes=close.values
     highs=high.values; lows=low.values; vols=vol.values
-    e9v=e9.values; e20v=e20.values; e50v=e50.values
-    rsi_v=rsi_s.values; macd_v=macd_l.values; macd_sig_v=macd_sg.values
-    avg_v=np.mean(vols)
 
-    # ══ 3-ROW PIXEL DATA ══
-    # Row 1: Trend (EMA stack)
-    trend_vals=[]
-    for i in range(n):
-        c_=closes[i]; e9_=e9v[i]; e20_=e20v[i]; e50_=e50v[i]
-        if c_>e9_ and e9_>e20_ and e20_>e50_: trend_vals.append(3)
-        elif c_>e20_ and e20_>e50_:           trend_vals.append(2)
-        elif c_>e50_:                          trend_vals.append(1)
-        elif c_<e9_ and e9_<e20_ and e20_<e50_:trend_vals.append(-3)
-        elif c_<e20_ and e20_<e50_:            trend_vals.append(-2)
-        elif c_<e50_:                          trend_vals.append(-1)
-        else:                                  trend_vals.append(0)
-
-    flip_up=[]; flip_dn=[]
-    for i in range(1,n):
-        if trend_vals[i-1]<=0 and trend_vals[i]>0: flip_up.append(i)
-        elif trend_vals[i-1]>=0 and trend_vals[i]<0: flip_dn.append(i)
-
-    # Row 2: Momentum (MACD + RSI)
-    momentum_vals=[]
-    for i in range(n):
-        m_=macd_v[i]; ms_=macd_sig_v[i]; rsi_=rsi_v[i]
-        score=0
-        if m_>ms_: score+=1
-        if m_>0:   score+=1
-        if 50<rsi_<70: score+=1
-        elif rsi_>=70: score-=1
-        elif rsi_<30:  score+=1
-        if m_<ms_: score-=1
-        momentum_vals.append(max(-3,min(3,score)))
-
-    # Row 3: Volume spike
-    vol_vals=[]
-    for i in range(n):
-        vr_=vols[i]/avg_v if avg_v>0 else 1
-        is_buy=closes[i]>=opens[i]
-        if vr_>=2.5:   vol_vals.append(3 if is_buy else -3)
-        elif vr_>=2.0: vol_vals.append(2 if is_buy else -2)
-        elif vr_>=1.5: vol_vals.append(1 if is_buy else -1)
-        else:          vol_vals.append(0)
-
-    # ══ LAYOUT ══
-    fig=plt.figure(figsize=(14,11),facecolor=BG)
-    gs=GridSpec(7,1,figure=fig,height_ratios=[5,1.0,1.0,1.0,0.28,0.28,0.28],hspace=0.04)
-    ax1=fig.add_subplot(gs[0]); ax2=fig.add_subplot(gs[1])
-    ax3=fig.add_subplot(gs[2]); ax4=fig.add_subplot(gs[3])
-    ax_p1=fig.add_subplot(gs[4]); ax_p2=fig.add_subplot(gs[5]); ax_p3=fig.add_subplot(gs[6])
-
-    for ax in [ax1,ax2,ax3,ax4]:
-        ax.set_facecolor(BG2)
-        ax.tick_params(colors=TEXT2,labelsize=7)
-        for s in ax.spines.values(): s.set_color(GRID)
-        ax.grid(True,color=GRID,linewidth=0.5,alpha=0.8)
-
-    for ax in [ax_p1,ax_p2,ax_p3]:
-        ax.set_facecolor("#f0f2f5")
-        for s in ax.spines.values(): s.set_color(GRID)
-        ax.set_yticks([]); ax.grid(False)
-
-    # ══ CANDLESTICKS ══
     for i in idx:
         o,c_,h_,l_=opens[i],closes[i],highs[i],lows[i]
         color=GREEN if c_>=o else RED
         ax1.plot([i,i],[l_,h_],color=color,linewidth=0.8,zorder=2)
-        rect_color=GREEN if c_>=o else RED
-        edge_color=GREEN if c_>=o else RED
-        ax1.bar(i,abs(c_-o),bottom=min(o,c_),color=rect_color,
-                edgecolor=edge_color,linewidth=0.3,width=0.7,zorder=3)
+        ax1.bar(i,abs(c_-o),bottom=min(o,c_),color=color,width=0.7,zorder=3)
 
-    # ══ VOLUME SPIKE ARROWS ══
+    avg_v=np.mean(vols)
     for i in idx:
         vr_i=vols[i]/avg_v if avg_v>0 else 1
         if vr_i>=2.0:
             is_buy=closes[i]>=opens[i]
-            arr_color=MID_GREEN if is_buy else MID_RED
+            arr_color=DARK_GREEN if is_buy else DARK_RED
             y_pos=lows[i]*0.998 if is_buy else highs[i]*1.002
             offset=-abs(highs[i]-lows[i])*2 if is_buy else abs(highs[i]-lows[i])*2
             ax1.annotate("",xy=(i,y_pos),xytext=(i,y_pos+offset),
@@ -323,169 +272,93 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.text(i,y_pos+offset*1.3,f"{vr_i:.1f}x",
                     color=arr_color,fontsize=6,ha='center',fontweight='bold')
 
-    # ══ EMAs ══
-    ax1.plot(idx,e50v,color=BLUE,linewidth=1.4,label=f"MA50:{r['e50']:,.0f}",zorder=4)
-    ax1.plot(idx,e20v,color=ORANGE,linewidth=1.6,label=f"MA20:{r['e20']:,.0f}",zorder=5)
-    ax1.plot(idx,e9v,color=PINK,linewidth=1.1,linestyle='--',label=f"MA9:{r['e9']:,.0f}",zorder=6)
+    ax1.plot(idx,e50.values,color=BLUE,linewidth=1.4,label=f"MA50:{r['e50']:,.0f}",zorder=4)
+    ax1.plot(idx,e20.values,color=ORANGE,linewidth=1.6,label=f"MA20:{r['e20']:,.0f}",zorder=5)
+    ax1.plot(idx,e9.values,color=PINK,linewidth=1.1,linestyle='--',label=f"MA9:{r['e9']:,.0f}",zorder=6)
 
-    # ══ BOLLINGER BANDS ══
     bb_m=close.rolling(20).mean(); bb_s=close.rolling(20).std()
     bb_u=(bb_m+2*bb_s).iloc[-n:]; bb_l=(bb_m-2*bb_s).iloc[-n:]
-    ax1.fill_between(idx,bb_u.values,bb_l.values,alpha=0.05,color=BLUE)
-    ax1.plot(idx,bb_u.values,color=BLUE,linewidth=0.5,linestyle=':',alpha=0.4)
-    ax1.plot(idx,bb_l.values,color=BLUE,linewidth=0.5,linestyle=':',alpha=0.4)
+    ax1.fill_between(idx,bb_u.values,bb_l.values,alpha=0.06,color=BLUE)
+    ax1.plot(idx,bb_u.values,color=BLUE,linewidth=0.5,linestyle=':',alpha=0.5)
+    ax1.plot(idx,bb_l.values,color=BLUE,linewidth=0.5,linestyle=':',alpha=0.5)
 
-    # ══ FIBONACCI ══
     swing_high=float(max(highs)); swing_low=float(min(lows)); fib_range=swing_high-swing_low
     is_idr=r["ticker"].endswith(".JK")
     price_fmt=lambda p: f"Rp {p:,.0f}" if is_idr else f"${p:,.2f}"
-    fib_levels={"0.0":(swing_high,"#424242","0.0%"),"23.6":(swing_high-0.236*fib_range,"#827717","23.6%"),
-                "38.2":(swing_high-0.382*fib_range,"#e65100","38.2%"),"50.0":(swing_high-0.500*fib_range,"#880e4f","50.0%"),
-                "61.8":(swing_high-0.618*fib_range,"#1b5e20","61.8% ★"),"78.6":(swing_high-0.786*fib_range,"#0d47a1","78.6%"),
-                "100.0":(swing_low,"#b71c1c","100%")}
+    fib_levels={"0.0":(swing_high,"#ffffff","0.0%"),"23.6":(swing_high-0.236*fib_range,"#f0e68c","23.6%"),
+                "38.2":(swing_high-0.382*fib_range,"#ffa500","38.2%"),"50.0":(swing_high-0.500*fib_range,"#ff69b4","50.0%"),
+                "61.8":(swing_high-0.618*fib_range,"#00ff7f","61.8% ★"),"78.6":(swing_high-0.786*fib_range,"#00bfff","78.6%"),
+                "100.0":(swing_low,"#ff4444","100%")}
     fib_styles={"0.0":(0.5,"--"),"23.6":(0.6,"--"),"38.2":(0.8,"-."),"50.0":(0.8,"-."),"61.8":(1.2,"-"),"78.6":(0.8,"-."),"100.0":(0.5,"--")}
     for key,(fval,fcol,flabel) in fib_levels.items():
         lw,ls=fib_styles[key]
-        ax1.axhline(fval,color=fcol,linewidth=lw,linestyle=ls,alpha=0.6,zorder=3)
+        ax1.axhline(fval,color=fcol,linewidth=lw,linestyle=ls,alpha=0.55,zorder=3)
         ax1.text(0.5,fval,f" {flabel}  {price_fmt(fval)}",color=fcol,fontsize=6.5,va='center',alpha=0.9,
-                bbox=dict(boxstyle='round,pad=0.15',facecolor=BG,edgecolor=fcol,alpha=0.6,linewidth=0.4))
+                bbox=dict(boxstyle='round,pad=0.15',facecolor=BG,edgecolor=fcol,alpha=0.5,linewidth=0.4))
 
     lp=closes[-1]; pc_=GREEN if lp>=closes[-2] else RED
-    ax1.axhline(lp,color=pc_,linewidth=0.8,linestyle='--',alpha=0.8)
-    ax1.text(n-0.5,lp,f" {price_fmt(lp)}",color="white",fontsize=8,fontweight='bold',va='center',
-             bbox=dict(boxstyle='round,pad=0.25',facecolor=pc_,edgecolor=pc_,linewidth=0))
+    ax1.axhline(lp,color=pc_,linewidth=0.7,linestyle='--',alpha=0.7)
+    ax1.text(n-0.5,lp,f" {price_fmt(lp)}",color=pc_,fontsize=8,fontweight='bold',va='center',
+             bbox=dict(boxstyle='round,pad=0.2',facecolor=BG2,edgecolor=pc_,linewidth=0.8))
+
+    bar_h=(highs.max()-lows.min())*0.015; bar_y=lows.min()-bar_h*2
+    for i in idx:
+        o,c_=opens[i],closes[i]; p=(c_-o)/o*100 if o>0 else 0
+        col=(GREEN if p>1 else "#4db6ac" if p>0 else "#ef9a9a" if p>-1 else RED)
+        ax1.bar(i,bar_h,bottom=bar_y,color=col,width=0.85,zorder=1)
 
     if not r.get("liquid",True):
         ax1.text(n/2,(swing_high+swing_low)/2,"⚠️ LOW LIQUIDITY",
-                color="#c62828",fontsize=22,alpha=0.18,ha='center',va='center',
+                color="#ff6b6b",fontsize=22,alpha=0.25,ha='center',va='center',
                 fontweight='bold',rotation=30,zorder=15)
 
     sig_txt=r['sigs'][0].split('-')[0].strip() if r['sigs'] else 'No Signal'
     chg_s=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
-    chg_color=GREEN if r['chg']>=0 else RED
     liq_tag=" | ⚠️LOW LIQ" if not r.get("liquid",True) else ""
     ax1.set_title(f"  {r['ticker']}  |  TF:{r['tf']}  |  {price_fmt(lp)}  {chg_s}  |  {r['trend']}  |  Score:{r['score']}/8  |  {sig_txt}{liq_tag}",
                   color=TEXT,fontsize=9,fontweight='bold',loc='left',pad=6,
-                  bbox=dict(boxstyle='round,pad=0.3',facecolor='#e8eaf6',edgecolor=GRID))
-    ax1.legend(loc='upper left',fontsize=7,facecolor=BG,edgecolor=GRID,labelcolor=TEXT2)
+                  bbox=dict(boxstyle='round,pad=0.3',facecolor='#0f1a2e',edgecolor=GRID))
+    ax1.legend(loc='upper left',fontsize=7,facecolor=BG2,edgecolor=GRID,labelcolor=TEXT2)
     ax1.set_xlim(-0.5,n-0.5); ax1.tick_params(labelbottom=False)
 
-    # ══ VOLUME BAR ══
     vol_colors=[GREEN if closes[i]>=opens[i] else RED for i in idx]
-    ax2.bar(idx,vols,color=vol_colors,alpha=0.7,width=0.7)
+    ax2.bar(idx,vols,color=vol_colors,alpha=0.8,width=0.7)
     ax2.axhline(avg_v,color=TEXT2,linewidth=0.7,linestyle='--',alpha=0.6)
     for i in idx:
         vr_i=vols[i]/avg_v if avg_v>0 else 1
         if vr_i>=2.0:
             is_buy=closes[i]>=opens[i]
-            ax2.bar(i,vols[i],color=MID_GREEN if is_buy else MID_RED,alpha=0.9,width=0.7)
+            ax2.bar(i,vols[i],color=DARK_GREEN if is_buy else DARK_RED,alpha=0.9,width=0.7)
     ax2.set_ylabel("VOL",color=TEXT2,fontsize=7)
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f"{x/1e9:.1f}B" if x>=1e9 else f"{x/1e6:.0f}M" if x>=1e6 else f"{x/1e3:.0f}K"))
     ax2.tick_params(labelbottom=False); ax2.set_xlim(-0.5,n-0.5)
 
-    # ══ MACD ══
     hist_colors=[GREEN if v>=0 else RED for v in macd_h.values]
-    ax3.bar(idx,macd_h.values,color=hist_colors,alpha=0.7,width=0.7)
+    ax3.bar(idx,macd_h.values,color=hist_colors,alpha=0.8,width=0.7)
     ax3.plot(idx,macd_l.values,color=BLUE,linewidth=1.1,label=f"MACD:{r['macd']:.1f}")
     ax3.plot(idx,macd_sg.values,color=RED,linewidth=0.9,label=f"Sig:{r['msig']:.1f}")
     ax3.axhline(0,color=TEXT2,linewidth=0.5)
-    ax3.set_ylabel("MACD",color=TEXT2,fontsize=7)
-    ax3.legend(loc='upper left',fontsize=6,facecolor=BG,edgecolor=GRID,labelcolor=TEXT2)
+    ax3.set_ylabel("MACD",color=TEXT2,fontsize=7); ax3.legend(loc='upper left',fontsize=6,facecolor=BG2,edgecolor=GRID,labelcolor=TEXT2)
     ax3.tick_params(labelbottom=False); ax3.set_xlim(-0.5,n-0.5)
 
-    # ══ STOCH + RSI ══
     ax4.plot(idx,sk.values,color=BLUE,linewidth=1.1,label=f"K:{r['stoch']:.1f}")
     ax4.plot(idx,sd.values,color=PINK,linewidth=0.9,label="D")
-    ax4.plot(idx,rsi_v,color=ORANGE,linewidth=0.9,linestyle='--',label=f"RSI:{r['rsi']:.1f}")
-    ax4.axhline(80,color=RED,linewidth=0.5,linestyle='--',alpha=0.5)
-    ax4.axhline(20,color=GREEN,linewidth=0.5,linestyle='--',alpha=0.5)
-    ax4.axhline(50,color=TEXT2,linewidth=0.4,alpha=0.3)
-    ax4.fill_between(idx,80,100,alpha=0.05,color=RED)
-    ax4.fill_between(idx,0,20,alpha=0.05,color=GREEN)
+    ax4.plot(idx,rsi_s.values,color=ORANGE,linewidth=0.9,linestyle='--',label=f"RSI:{r['rsi']:.1f}")
+    ax4.axhline(80,color=RED,linewidth=0.5,linestyle='--',alpha=0.6)
+    ax4.axhline(20,color=GREEN,linewidth=0.5,linestyle='--',alpha=0.6)
+    ax4.axhline(50,color=TEXT2,linewidth=0.4,alpha=0.4)
+    ax4.fill_between(idx,80,100,alpha=0.06,color=RED); ax4.fill_between(idx,0,20,alpha=0.06,color=GREEN)
     ax4.set_ylim(0,100); ax4.set_ylabel("STOCH",color=TEXT2,fontsize=7)
-    ax4.legend(loc='upper left',fontsize=6,facecolor=BG,edgecolor=GRID,labelcolor=TEXT2)
+    ax4.legend(loc='upper left',fontsize=6,facecolor=BG2,edgecolor=GRID,labelcolor=TEXT2)
     ax4.set_xlim(-0.5,n-0.5)
+
     step=max(1,n//10); ticks=list(range(0,n,step))
-    fmt_t="%d/%m" if tf in ["D","W","M"] else "%H:%M"
-    labels=[df.index[i].strftime(fmt_t) for i in ticks]
+    fmt="%d/%m" if tf in ["D","W","M"] else "%H:%M"
+    labels=[df.index[i].strftime(fmt) for i in ticks]
     ax4.set_xticks(ticks); ax4.set_xticklabels(labels,fontsize=7,color=TEXT2)
 
-    # ══════════════════════════════════
-    # T1MO PIXEL HEATMAP — 3 ROWS (WHITE)
-    # ══════════════════════════════════
-    PH=1.0
-
-    def px_trend(v):
-        if v==3:    return "#00897b"   # teal green full bull
-        elif v==2:  return "#4db6ac"   # teal mild bull
-        elif v==1:  return "#b2dfdb"   # light teal weak bull
-        elif v==-3: return "#e53935"   # red full bear
-        elif v==-2: return "#ef9a9a"   # light red mild bear
-        elif v==-1: return "#ffcdd2"   # very light red weak bear
-        else:       return "#e0e0e0"
-
-    def px_momentum(v):
-        if v>=2:    return "#1565c0"   # strong blue bull
-        elif v==1:  return "#90caf9"   # light blue mild
-        elif v==-1: return "#ce93d8"   # light purple mild bear
-        elif v<=-2: return "#7b1fa2"   # purple strong bear
-        else:       return "#e0e0e0"
-
-    def px_volume(v):
-        if v==3:    return "#1b5e20"   # dark green big buy
-        elif v==2:  return "#43a047"   # green medium buy
-        elif v==1:  return "#a5d6a7"   # light green mild buy
-        elif v==-3: return "#b71c1c"   # dark red big sell
-        elif v==-2: return "#e53935"   # red medium sell
-        elif v==-1: return "#ffcdd2"   # light red mild sell
-        else:       return "#f5f5f5"
-
-    # PIXEL ROW 1: TREND
-    for i in idx:
-        v=trend_vals[i]; col=px_trend(v)
-        if v>0:    ax_p1.bar(i,PH,bottom=0,color=col,width=0.92,zorder=3)
-        elif v<0:  ax_p1.bar(i,-PH,bottom=0,color=col,width=0.92,zorder=3)
-        else:      ax_p1.bar(i,0.1,bottom=-0.05,color=GRAY,width=0.92,zorder=2)
-    for fi in flip_up:
-        ax_p1.axvline(fi,color="#00695c",linewidth=2.0,alpha=0.9,zorder=5)
-    for fi in flip_dn:
-        ax_p1.axvline(fi,color="#c62828",linewidth=2.0,alpha=0.9,zorder=5)
-    ax_p1.axhline(0,color=TEXT2,linewidth=0.5,alpha=0.4,zorder=4)
-    ax_p1.set_ylim(-1.4,1.4); ax_p1.set_xlim(-0.5,n-0.5)
-    ax_p1.set_yticks([]); ax_p1.set_xticks([])
-    ax_p1.text(-0.5,0,"TREND",color=TEXT2,fontsize=5.5,va='center',ha='right',fontweight='bold')
-
-    # PIXEL ROW 2: MOMENTUM
-    for i in idx:
-        v=momentum_vals[i]; col=px_momentum(v)
-        if v>0:    ax_p2.bar(i,PH,bottom=0,color=col,width=0.92,zorder=3)
-        elif v<0:  ax_p2.bar(i,-PH,bottom=0,color=col,width=0.92,zorder=3)
-        else:      ax_p2.bar(i,0.1,bottom=-0.05,color=GRAY,width=0.92,zorder=2)
-    ax_p2.axhline(0,color=TEXT2,linewidth=0.5,alpha=0.4,zorder=4)
-    ax_p2.set_ylim(-1.4,1.4); ax_p2.set_xlim(-0.5,n-0.5)
-    ax_p2.set_yticks([]); ax_p2.set_xticks([])
-    ax_p2.text(-0.5,0,"MOMT",color=TEXT2,fontsize=5.5,va='center',ha='right',fontweight='bold')
-
-    # PIXEL ROW 3: VOLUME
-    for i in idx:
-        v=vol_vals[i]; col=px_volume(v)
-        if v>0:
-            ax_p3.bar(i,PH,bottom=0,color=col,width=0.92,zorder=3)
-            if v==3: ax_p3.text(i,0.5,"▲",color="white",fontsize=5,ha='center',va='center',fontweight='bold',zorder=6)
-        elif v<0:
-            ax_p3.bar(i,-PH,bottom=0,color=col,width=0.92,zorder=3)
-            if v==-3: ax_p3.text(i,-0.5,"▼",color="white",fontsize=5,ha='center',va='center',fontweight='bold',zorder=6)
-        else:
-            ax_p3.bar(i,PH,bottom=0,color=col,width=0.92,zorder=2)
-    ax_p3.axhline(0,color=TEXT2,linewidth=0.5,alpha=0.4,zorder=4)
-    ax_p3.set_ylim(-1.4,1.4); ax_p3.set_xlim(-0.5,n-0.5)
-    ax_p3.set_yticks([]); ax_p3.set_xticks([])
-    ax_p3.text(-0.5,0,"VOL",color=TEXT2,fontsize=5.5,va='center',ha='right',fontweight='bold')
-
-    # ══ WATERMARK ══
-    fig.text(0.5,0.5,"IDX QUANT\nT1MO Style",color='#131722',alpha=0.03,
+    fig.text(0.5,0.5,"IDX QUANT\nT1MO Style",color='white',alpha=0.04,
              fontsize=48,ha='center',va='center',rotation=30,fontweight='bold')
-
     plt.tight_layout(pad=0.5)
     buf=io.BytesIO()
     plt.savefig(buf,format='png',dpi=130,bbox_inches='tight',facecolor=BG)
@@ -527,6 +400,27 @@ async def start(u,c):
         "⚡ *v3 FAST: Parallel scan 10x lebih cepat + cache data*",
         parse_mode="Markdown")
 
+async def flipstatus_cmd(u,c):
+    """Tampilkan status flip terkini semua saham"""
+    bull_list = [k for k,v in flip_state_db.items() if v=="bull"]
+    bear_list = [k for k,v in flip_state_db.items() if v=="bear"]
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    lines = [f"📊 *PIXEL FLIP STATUS*", f"🕐 {now_str}", "━━━━━━━━━━━━━━━━━━━━"]
+    lines.append(f"🟢 *BULLISH* ({len(bull_list)} saham):")
+    if bull_list:
+        lines.append(" | ".join(bull_list[:15]))
+    else:
+        lines.append("— belum ada —")
+    lines.append(f"\n🔴 *BEARISH* ({len(bear_list)} saham):")
+    if bear_list:
+        lines.append(" | ".join(bear_list[:15]))
+    else:
+        lines.append("— belum ada —")
+    lines += ["━━━━━━━━━━━━━━━━━━━━",
+              f"Total tracked: {len(flip_state_db)} saham",
+              "🔄 Scan otomatis setiap 30 menit"]
+    await u.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
 async def help_cmd(u,c):
     await u.message.reply_text(
         "📖 *IDX QUANT v3 FAST — Command List*\n\n"
@@ -551,6 +445,9 @@ async def help_cmd(u,c):
         "*Market:*\n"
         "`/volume` — Top volume IDX\n"
         "`/trend` — Trend market + IHSG\n\n"
+        "*Flip Alert:*\n"
+        "`/flipstatus` — Status flip pixel semua saham\n"
+        "🔔 Auto alert flip tiap 30 menit (aktifkan /auto on)\n\n"
         "Score: 1-3 Lemah | 4-5 OK | 6+ 🔥\n"
         "⚠️ LOW LIQUIDITY = saham illiquid/gorengan\n"
         "⚡ v3: Parallel 10 thread + data cache 5 menit",
@@ -897,6 +794,94 @@ async def volume_spike_scan_us(context):
                         caption=f"📊 {top['code']} | {dir_txt} | Vol:{top['vr']:.1f}x avg | {fmt_now()}")
         except Exception as e: log.error(f"US spike alert error uid {uid}: {e}")
 
+
+# == FLIP PIXEL ALERT ==
+async def flip_pixel_scan(context):
+    """Scan semua saham setiap 30 menit, notify kalau ada trend flip"""
+    if not is_weekday(): return
+    if not auto_users: return
+    if not (is_idx_market_open() or is_us_market_open()): return
+
+    bot = context.bot
+    all_stocks = [(c, "D") for c in IDX_STOCKS] + [(c, "D") for c in US_STOCKS[:20]]
+    flips_bull = []  # bearish/neutral -> bull
+    flips_bear = []  # bullish/neutral -> bear
+
+    def check_flip(code_tf):
+        code, tf = code_tf
+        new_state = get_trend_state(code, tf)
+        if new_state is None: return None
+        old_state = flip_state_db.get(code, "neutral")
+        # Update state
+        flip_state_db[code] = new_state
+        # Detect flip
+        if old_state in ("bear","neutral") and new_state == "bull":
+            r = get_signal(code, tf)
+            if "error" not in r and r.get("liquid", True):
+                return ("bull", code, r)
+        elif old_state in ("bull","neutral") and new_state == "bear":
+            r = get_signal(code, tf)
+            if "error" not in r:
+                return ("bear", code, r)
+        return None
+
+    loop = asyncio.get_event_loop()
+    results = await loop.run_in_executor(None, lambda: [
+        check_flip(ct) for ct in all_stocks
+    ])
+
+    for res in results:
+        if res is None: continue
+        direction, code, r = res
+        if direction == "bull": flips_bull.append((code, r))
+        else: flips_bear.append((code, r))
+
+    save_json(FLIP_FILE, flip_state_db)
+
+    if not flips_bull and not flips_bear: return
+
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+
+    for uid in auto_users:
+        try:
+            # == BULLISH FLIP ==
+            if flips_bull:
+                lines = [f"🚀 *PIXEL FLIP — BEARISH ➜ BULLISH*",
+                         f"🕐 {now_str}", "━━━━━━━━━━━━━━━━━━━━"]
+                for code, r in flips_bull[:6]:
+                    is_idr = code.endswith(".JK")
+                    px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                    chg = f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
+                    sig = r['sigs'][0].split('-')[0].strip() if r['sigs'] else 'No Signal'
+                    lines.append(f"✅ *{code}* `{px}` {chg} | Score:`{r['score']}/8` | {sig}")
+                lines += ["━━━━━━━━━━━━━━━━━━━━",
+                          "📊 EMA stack: Price > EMA9 > MA20 > MA50",
+                          "💡 Pixel TREND flip ke atas — konfirmasi entry!"]
+                await bot.send_message(int(uid), "\n".join(lines), parse_mode="Markdown")
+                # Send chart for top bull flip
+                top_code, top_r = flips_bull[0]
+                buf, _ = generate_chart(top_code, "D")
+                if buf:
+                    await bot.send_photo(int(uid), photo=buf,
+                        caption=f"🚀 FLIP BULLISH: {top_code} | Score:{top_r['score']}/8 | {now_str}")
+
+            # == BEARISH FLIP ==
+            if flips_bear:
+                lines = [f"⚠️ *PIXEL FLIP — BULLISH ➜ BEARISH*",
+                         f"🕐 {now_str}", "━━━━━━━━━━━━━━━━━━━━"]
+                for code, r in flips_bear[:6]:
+                    is_idr = code.endswith(".JK")
+                    px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                    chg = f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
+                    lines.append(f"🔴 *{code}* `{px}` {chg} | Score:`{r['score']}/8` | CUT/AVOID")
+                lines += ["━━━━━━━━━━━━━━━━━━━━",
+                          "📊 EMA stack: Price < EMA9 < MA20 < MA50",
+                          "⚡ Pixel TREND flip ke bawah — waspada distribusi!"]
+                await bot.send_message(int(uid), "\n".join(lines), parse_mode="Markdown")
+
+        except Exception as e:
+            log.error(f"flip alert error uid {uid}: {e}")
+
 async def morning_scan(context):
     if not is_weekday(): return
     if not auto_users: return
@@ -948,7 +933,7 @@ def run_flask(): app.run(host="0.0.0.0",port=PORT,debug=False,use_reloader=False
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
-    cmds=[("start",start),("help",help_cmd),("signal",signal_cmd),("chart",chart_cmd),
+    cmds=[("start",start),("help",help_cmd),("flipstatus",flipstatus_cmd),("signal",signal_cmd),("chart",chart_cmd),
           ("screener",screener_cmd),("screener_us",screener_us_cmd),
           ("alert",alert_cmd),("alerts",alerts_cmd),("delalert",delalert_cmd),
           ("wl",wl_cmd),("wladd",wladd_cmd),("wldel",wldel_cmd),("wlscan",wlscan_cmd),
@@ -959,6 +944,7 @@ def run_bot():
     jq.run_repeating(volume_spike_scan_idx,interval=900,first=120)
     jq.run_repeating(volume_spike_scan_us,interval=900,first=180)
     jq.run_daily(morning_scan,time=dtime(9,0,tzinfo=WIB))
+    jq.run_repeating(flip_pixel_scan,interval=1800,first=300)  # setiap 30 menit
     log.info("IDX QUANT Bot v3 FAST polling..."); tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
