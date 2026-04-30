@@ -222,32 +222,110 @@ def generate_chart(code, tf="D", volume_spikes=None):
     BG="#0a0e14"; BG2="#0f1520"; GRID="#1a2438"
     GREEN="#26a69a"; RED="#ef5350"; ORANGE="#f07020"
     BLUE="#2288cc"; PINK="#e040c8"; TEXT="#c8d6e5"; TEXT2="#7a90a8"
-    DARK_GREEN="#1a5c3a"; DARK_RED="#8b0000"
+    DARK_GREEN="#0d3d1a"; DARK_RED="#5c0a0a"
+    MID_GREEN="#1a7a34"; MID_RED="#a01515"
+    YELLOW="#f5c518"; GRAY="#2a3a50"
 
-    fig=plt.figure(figsize=(14,10),facecolor=BG)
-    gs=GridSpec(4,1,figure=fig,height_ratios=[5,1.2,1.2,1.2],hspace=0.04)
-    ax1=fig.add_subplot(gs[0]); ax2=fig.add_subplot(gs[1])
-    ax3=fig.add_subplot(gs[2]); ax4=fig.add_subplot(gs[3])
+    opens=df["Open"].squeeze().values; closes=close.values
+    highs=high.values; lows=low.values; vols=vol.values
+    e9v=e9.values; e20v=e20.values; e50v=e50.values
+    rsi_v=rsi_s.values; macd_v=macd_l.values; macd_sig_v=macd_sg.values
+
+    # ══ COMPUTE 3-ROW PIXEL DATA ══
+    avg_v=np.mean(vols)
+
+    # --- ROW 1: TREND FLIP (EMA stack) ---
+    # Bullish = price > e9 > e20 > e50 → flip UP (positive bar)
+    # Bearish = price < e9 < e20 < e50 → flip DOWN (negative bar)
+    # Detect transition points for flip markers
+    trend_vals=[]
+    for i in range(n):
+        c_=closes[i]; e9_=e9v[i]; e20_=e20v[i]; e50_=e50v[i]
+        if c_>e9_ and e9_>e20_ and e20_>e50_:
+            trend_vals.append(3)   # full bullish
+        elif c_>e20_ and e20_>e50_:
+            trend_vals.append(2)   # mild bullish
+        elif c_>e50_:
+            trend_vals.append(1)   # weak bullish
+        elif c_<e9_ and e9_<e20_ and e20_<e50_:
+            trend_vals.append(-3)  # full bearish
+        elif c_<e20_ and e20_<e50_:
+            trend_vals.append(-2)  # mild bearish
+        elif c_<e50_:
+            trend_vals.append(-1)  # weak bearish
+        else:
+            trend_vals.append(0)   # neutral
+
+    # Detect flip points (sign change)
+    flip_up=[]   # index where bearish->bullish flip
+    flip_dn=[]   # index where bullish->bearish flip
+    for i in range(1,n):
+        prev=trend_vals[i-1]; curr=trend_vals[i]
+        if prev<=0 and curr>0: flip_up.append(i)
+        elif prev>=0 and curr<0: flip_dn.append(i)
+
+    # --- ROW 2: MOMENTUM (MACD cross + RSI) ---
+    momentum_vals=[]
+    for i in range(n):
+        m_=macd_v[i]; ms_=macd_sig_v[i]; rsi_=rsi_v[i]
+        score=0
+        if m_>ms_: score+=1   # MACD bullish
+        if m_>0:   score+=1   # MACD positive
+        if 50<rsi_<70: score+=1
+        elif rsi_>=70: score-=1  # overbought
+        elif rsi_<30: score+=1   # oversold bounce
+        if m_<ms_: score-=1
+        momentum_vals.append(max(-3,min(3,score)))
+
+    # --- ROW 3: VOLUME SPIKE ---
+    vol_vals=[]
+    for i in range(n):
+        vr_=vols[i]/avg_v if avg_v>0 else 1
+        is_buy=closes[i]>=opens[i]
+        if vr_>=2.5:
+            vol_vals.append(3 if is_buy else -3)   # big spike
+        elif vr_>=2.0:
+            vol_vals.append(2 if is_buy else -2)   # medium spike
+        elif vr_>=1.5:
+            vol_vals.append(1 if is_buy else -1)   # mild spike
+        else:
+            vol_vals.append(0)
+
+    # ══ LAYOUT ══
+    fig=plt.figure(figsize=(14,11),facecolor=BG)
+    # Rows: candle | volume bar | MACD | stoch | pixel1 | pixel2 | pixel3
+    gs=GridSpec(7,1,figure=fig,height_ratios=[5,1.0,1.0,1.0,0.28,0.28,0.28],hspace=0.04)
+    ax1=fig.add_subplot(gs[0])
+    ax2=fig.add_subplot(gs[1])
+    ax3=fig.add_subplot(gs[2])
+    ax4=fig.add_subplot(gs[3])
+    ax_p1=fig.add_subplot(gs[4])  # pixel trend
+    ax_p2=fig.add_subplot(gs[5])  # pixel momentum
+    ax_p3=fig.add_subplot(gs[6])  # pixel volume
+
     for ax in [ax1,ax2,ax3,ax4]:
         ax.set_facecolor(BG2); ax.tick_params(colors=TEXT2,labelsize=7)
         for s in ax.spines.values(): s.set_color(GRID)
         ax.grid(True,color=GRID,linewidth=0.4,alpha=0.6)
 
-    opens=df["Open"].squeeze().values; closes=close.values
-    highs=high.values; lows=low.values; vols=vol.values
+    for ax in [ax_p1,ax_p2,ax_p3]:
+        ax.set_facecolor("#070b10")
+        for s in ax.spines.values(): s.set_color("#0d1824")
+        ax.set_yticks([]); ax.grid(False)
 
+    # ══ CANDLESTICKS ══
     for i in idx:
         o,c_,h_,l_=opens[i],closes[i],highs[i],lows[i]
         color=GREEN if c_>=o else RED
         ax1.plot([i,i],[l_,h_],color=color,linewidth=0.8,zorder=2)
         ax1.bar(i,abs(c_-o),bottom=min(o,c_),color=color,width=0.7,zorder=3)
 
-    avg_v=np.mean(vols)
+    # ══ VOLUME SPIKE ARROWS ON CANDLE ══
     for i in idx:
         vr_i=vols[i]/avg_v if avg_v>0 else 1
         if vr_i>=2.0:
             is_buy=closes[i]>=opens[i]
-            arr_color=DARK_GREEN if is_buy else DARK_RED
+            arr_color=MID_GREEN if is_buy else MID_RED
             y_pos=lows[i]*0.998 if is_buy else highs[i]*1.002
             offset=-abs(highs[i]-lows[i])*2 if is_buy else abs(highs[i]-lows[i])*2
             ax1.annotate("",xy=(i,y_pos),xytext=(i,y_pos+offset),
@@ -255,16 +333,19 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.text(i,y_pos+offset*1.3,f"{vr_i:.1f}x",
                     color=arr_color,fontsize=6,ha='center',fontweight='bold')
 
-    ax1.plot(idx,e50.values,color=BLUE,linewidth=1.4,label=f"MA50:{r['e50']:,.0f}",zorder=4)
-    ax1.plot(idx,e20.values,color=ORANGE,linewidth=1.6,label=f"MA20:{r['e20']:,.0f}",zorder=5)
-    ax1.plot(idx,e9.values,color=PINK,linewidth=1.1,linestyle='--',label=f"MA9:{r['e9']:,.0f}",zorder=6)
+    # ══ EMAs ══
+    ax1.plot(idx,e50v,color=BLUE,linewidth=1.4,label=f"MA50:{r['e50']:,.0f}",zorder=4)
+    ax1.plot(idx,e20v,color=ORANGE,linewidth=1.6,label=f"MA20:{r['e20']:,.0f}",zorder=5)
+    ax1.plot(idx,e9v,color=PINK,linewidth=1.1,linestyle='--',label=f"MA9:{r['e9']:,.0f}",zorder=6)
 
+    # ══ BOLLINGER BANDS ══
     bb_m=close.rolling(20).mean(); bb_s=close.rolling(20).std()
     bb_u=(bb_m+2*bb_s).iloc[-n:]; bb_l=(bb_m-2*bb_s).iloc[-n:]
     ax1.fill_between(idx,bb_u.values,bb_l.values,alpha=0.06,color=BLUE)
     ax1.plot(idx,bb_u.values,color=BLUE,linewidth=0.5,linestyle=':',alpha=0.5)
     ax1.plot(idx,bb_l.values,color=BLUE,linewidth=0.5,linestyle=':',alpha=0.5)
 
+    # ══ FIBONACCI ══
     swing_high=float(max(highs)); swing_low=float(min(lows)); fib_range=swing_high-swing_low
     is_idr=r["ticker"].endswith(".JK")
     price_fmt=lambda p: f"Rp {p:,.0f}" if is_idr else f"${p:,.2f}"
@@ -284,12 +365,6 @@ def generate_chart(code, tf="D", volume_spikes=None):
     ax1.text(n-0.5,lp,f" {price_fmt(lp)}",color=pc_,fontsize=8,fontweight='bold',va='center',
              bbox=dict(boxstyle='round,pad=0.2',facecolor=BG2,edgecolor=pc_,linewidth=0.8))
 
-    bar_h=(highs.max()-lows.min())*0.015; bar_y=lows.min()-bar_h*2
-    for i in idx:
-        o,c_=opens[i],closes[i]; p=(c_-o)/o*100 if o>0 else 0
-        col=(GREEN if p>1 else "#4db6ac" if p>0 else "#ef9a9a" if p>-1 else RED)
-        ax1.bar(i,bar_h,bottom=bar_y,color=col,width=0.85,zorder=1)
-
     if not r.get("liquid",True):
         ax1.text(n/2,(swing_high+swing_low)/2,"⚠️ LOW LIQUIDITY",
                 color="#ff6b6b",fontsize=22,alpha=0.25,ha='center',va='center',
@@ -304,6 +379,7 @@ def generate_chart(code, tf="D", volume_spikes=None):
     ax1.legend(loc='upper left',fontsize=7,facecolor=BG2,edgecolor=GRID,labelcolor=TEXT2)
     ax1.set_xlim(-0.5,n-0.5); ax1.tick_params(labelbottom=False)
 
+    # ══ VOLUME BAR ══
     vol_colors=[GREEN if closes[i]>=opens[i] else RED for i in idx]
     ax2.bar(idx,vols,color=vol_colors,alpha=0.8,width=0.7)
     ax2.axhline(avg_v,color=TEXT2,linewidth=0.7,linestyle='--',alpha=0.6)
@@ -311,37 +387,146 @@ def generate_chart(code, tf="D", volume_spikes=None):
         vr_i=vols[i]/avg_v if avg_v>0 else 1
         if vr_i>=2.0:
             is_buy=closes[i]>=opens[i]
-            ax2.bar(i,vols[i],color=DARK_GREEN if is_buy else DARK_RED,alpha=0.9,width=0.7)
+            ax2.bar(i,vols[i],color=MID_GREEN if is_buy else MID_RED,alpha=0.95,width=0.7)
     ax2.set_ylabel("VOL",color=TEXT2,fontsize=7)
     ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f"{x/1e9:.1f}B" if x>=1e9 else f"{x/1e6:.0f}M" if x>=1e6 else f"{x/1e3:.0f}K"))
     ax2.tick_params(labelbottom=False); ax2.set_xlim(-0.5,n-0.5)
 
+    # ══ MACD ══
     hist_colors=[GREEN if v>=0 else RED for v in macd_h.values]
     ax3.bar(idx,macd_h.values,color=hist_colors,alpha=0.8,width=0.7)
     ax3.plot(idx,macd_l.values,color=BLUE,linewidth=1.1,label=f"MACD:{r['macd']:.1f}")
     ax3.plot(idx,macd_sg.values,color=RED,linewidth=0.9,label=f"Sig:{r['msig']:.1f}")
     ax3.axhline(0,color=TEXT2,linewidth=0.5)
-    ax3.set_ylabel("MACD",color=TEXT2,fontsize=7); ax3.legend(loc='upper left',fontsize=6,facecolor=BG2,edgecolor=GRID,labelcolor=TEXT2)
+    ax3.set_ylabel("MACD",color=TEXT2,fontsize=7)
+    ax3.legend(loc='upper left',fontsize=6,facecolor=BG2,edgecolor=GRID,labelcolor=TEXT2)
     ax3.tick_params(labelbottom=False); ax3.set_xlim(-0.5,n-0.5)
 
+    # ══ STOCH + RSI ══
     ax4.plot(idx,sk.values,color=BLUE,linewidth=1.1,label=f"K:{r['stoch']:.1f}")
     ax4.plot(idx,sd.values,color=PINK,linewidth=0.9,label="D")
     ax4.plot(idx,rsi_s.values,color=ORANGE,linewidth=0.9,linestyle='--',label=f"RSI:{r['rsi']:.1f}")
     ax4.axhline(80,color=RED,linewidth=0.5,linestyle='--',alpha=0.6)
     ax4.axhline(20,color=GREEN,linewidth=0.5,linestyle='--',alpha=0.6)
     ax4.axhline(50,color=TEXT2,linewidth=0.4,alpha=0.4)
-    ax4.fill_between(idx,80,100,alpha=0.06,color=RED); ax4.fill_between(idx,0,20,alpha=0.06,color=GREEN)
+    ax4.fill_between(idx,80,100,alpha=0.06,color=RED)
+    ax4.fill_between(idx,0,20,alpha=0.06,color=GREEN)
     ax4.set_ylim(0,100); ax4.set_ylabel("STOCH",color=TEXT2,fontsize=7)
     ax4.legend(loc='upper left',fontsize=6,facecolor=BG2,edgecolor=GRID,labelcolor=TEXT2)
     ax4.set_xlim(-0.5,n-0.5)
 
     step=max(1,n//10); ticks=list(range(0,n,step))
-    fmt="%d/%m" if tf in ["D","W","M"] else "%H:%M"
-    labels=[df.index[i].strftime(fmt) for i in ticks]
+    fmt_t="%d/%m" if tf in ["D","W","M"] else "%H:%M"
+    labels=[df.index[i].strftime(fmt_t) for i in ticks]
     ax4.set_xticks(ticks); ax4.set_xticklabels(labels,fontsize=7,color=TEXT2)
+    ax4.tick_params(labelbottom=True)
 
+    # ══════════════════════════════════════
+    # T1MO PIXEL HEATMAP — 3 ROWS
+    # ══════════════════════════════════════
+
+    def pixel_color_trend(v):
+        """Trend flip pixel: bullish=green shades UP, bearish=red shades DOWN"""
+        if v==3:   return "#00e676"   # bright green - full bull
+        elif v==2: return "#26a69a"   # teal - mild bull
+        elif v==1: return "#1a4d3a"   # dark green - weak bull
+        elif v==-3:return "#ff1744"   # bright red - full bear
+        elif v==-2:return "#ef5350"   # red - mild bear
+        elif v==-1:return "#4d1a1a"   # dark red - weak bear
+        else:      return GRAY        # neutral
+
+    def pixel_color_momentum(v):
+        """Momentum pixel: MACD+RSI based"""
+        if v>=2:   return "#00b0ff"   # bright blue - strong momentum
+        elif v==1: return "#1565c0"   # blue - positive
+        elif v==-1:return "#e040c8"   # magenta - negative
+        elif v<=-2:return "#880e4f"   # dark magenta - weak
+        else:      return GRAY
+
+    def pixel_color_volume(v):
+        """Volume spike pixel: buy=green, sell=red, intensity based"""
+        if v==3:   return "#00c853"   # bright green - big buy spike
+        elif v==2: return "#1b5e20"   # dark green - medium buy
+        elif v==1: return "#0d3318"   # very dark green - mild buy
+        elif v==-3:return "#d50000"   # bright red - big sell spike
+        elif v==-2:return "#7f0000"   # dark red - medium sell
+        elif v==-1:return "#3e0000"   # very dark red - mild sell
+        else:      return "#0d1218"   # near-black - no spike
+
+    PH=1.0  # pixel height (full fill)
+
+    # --- PIXEL ROW 1: TREND FLIP ---
+    for i in idx:
+        v=trend_vals[i]
+        col=pixel_color_trend(v)
+        if v>0:
+            # bullish: bar goes UP from center
+            ax_p1.bar(i,PH,bottom=0,color=col,width=0.92,zorder=3)
+        elif v<0:
+            # bearish: bar goes DOWN from center (flip!)
+            ax_p1.bar(i,-PH,bottom=0,color=col,width=0.92,zorder=3)
+        else:
+            ax_p1.bar(i,0.1,bottom=-0.05,color=GRAY,width=0.92,zorder=2)
+
+    # Mark flip points with vertical line
+    for fi in flip_up:
+        ax_p1.axvline(fi,color="#00e676",linewidth=1.5,alpha=0.9,zorder=5)
+    for fi in flip_dn:
+        ax_p1.axvline(fi,color="#ff1744",linewidth=1.5,alpha=0.9,zorder=5)
+
+    ax_p1.axhline(0,color="#ffffff",linewidth=0.5,alpha=0.3,zorder=4)
+    ax_p1.set_ylim(-1.4,1.4)
+    ax_p1.set_xlim(-0.5,n-0.5)
+    ax_p1.set_yticks([])
+    ax_p1.set_xticks([])
+    ax_p1.text(-0.5,0,"TREND",color=TEXT2,fontsize=5.5,va='center',ha='right',fontweight='bold')
+
+    # --- PIXEL ROW 2: MOMENTUM ---
+    for i in idx:
+        v=momentum_vals[i]
+        col=pixel_color_momentum(v)
+        if v>0:
+            ax_p2.bar(i,PH,bottom=0,color=col,width=0.92,zorder=3)
+        elif v<0:
+            ax_p2.bar(i,-PH,bottom=0,color=col,width=0.92,zorder=3)
+        else:
+            ax_p2.bar(i,0.1,bottom=-0.05,color=GRAY,width=0.92,zorder=2)
+
+    ax_p2.axhline(0,color="#ffffff",linewidth=0.5,alpha=0.3,zorder=4)
+    ax_p2.set_ylim(-1.4,1.4)
+    ax_p2.set_xlim(-0.5,n-0.5)
+    ax_p2.set_yticks([])
+    ax_p2.set_xticks([])
+    ax_p2.text(-0.5,0,"MOMT",color=TEXT2,fontsize=5.5,va='center',ha='right',fontweight='bold')
+
+    # --- PIXEL ROW 3: VOLUME SPIKE ---
+    for i in idx:
+        v=vol_vals[i]
+        col=pixel_color_volume(v)
+        if v>0:
+            ax_p3.bar(i,PH,bottom=0,color=col,width=0.92,zorder=3)
+            if v==3:  # big spike label
+                ax_p3.text(i,0.5,"▲",color="#00ff88",fontsize=5,ha='center',va='center',
+                           fontweight='bold',zorder=6)
+        elif v<0:
+            ax_p3.bar(i,-PH,bottom=0,color=col,width=0.92,zorder=3)
+            if v==-3:  # big sell spike label
+                ax_p3.text(i,-0.5,"▼",color="#ff4444",fontsize=5,ha='center',va='center',
+                           fontweight='bold',zorder=6)
+        else:
+            ax_p3.bar(i,PH,bottom=0,color=col,width=0.92,zorder=2)
+
+    ax_p3.axhline(0,color="#ffffff",linewidth=0.5,alpha=0.3,zorder=4)
+    ax_p3.set_ylim(-1.4,1.4)
+    ax_p3.set_xlim(-0.5,n-0.5)
+    ax_p3.set_yticks([])
+    ax_p3.set_xticks([])
+    ax_p3.text(-0.5,0,"VOL",color=TEXT2,fontsize=5.5,va='center',ha='right',fontweight='bold')
+
+    # ══ WATERMARK ══
     fig.text(0.5,0.5,"IDX QUANT\nT1MO Style",color='white',alpha=0.04,
              fontsize=48,ha='center',va='center',rotation=30,fontweight='bold')
+
     plt.tight_layout(pad=0.5)
     buf=io.BytesIO()
     plt.savefig(buf,format='png',dpi=130,bbox_inches='tight',facecolor=BG)
