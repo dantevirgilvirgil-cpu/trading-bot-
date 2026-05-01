@@ -221,6 +221,186 @@ def parallel_signal_scan(stock_list, tf="D", min_score=3, max_workers=10):
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
 
+# ══ DOJI BULLISH REVERSAL DETECTOR ══
+def detect_doji(code, tf="1H"):
+    """
+    Deteksi Doji Bullish Reversal pada candle terakhir.
+    Returns dict dengan detail doji, atau None kalau tidak ada doji.
+    Tipe doji: Standard, Dragonfly, Gravestone, Long-legged, Spinning Top
+    """
+    r = get_signal(code, tf)
+    if "error" in r: return None
+    df = r["df"]
+    if len(df) < 10: return None
+
+    opens  = df["Open"].squeeze().values
+    closes = df["Close"].squeeze().values
+    highs  = df["High"].squeeze().values
+    lows   = df["Low"].squeeze().values
+
+    # Pakai 3 candle terakhir: [-3] prev-prev, [-2] prev, [-1] latest
+    i = -1
+    o, c_, h_, l_ = opens[i], closes[i], highs[i], lows[i]
+    total_range = h_ - l_
+    if total_range == 0: return None
+
+    body = abs(c_ - o)
+    upper_wick = h_ - max(o, c_)
+    lower_wick = min(o, c_) - l_
+
+    body_ratio  = body / total_range
+    upper_ratio = upper_wick / total_range
+    lower_ratio = lower_wick / total_range
+
+    # ── Klasifikasi tipe doji ──
+    doji_type = None
+    doji_emoji = ""
+
+    # Dragonfly Doji: body kecil di atas, lower wick panjang (bullish reversal kuat)
+    if body_ratio < 0.12 and lower_ratio >= 0.55 and upper_ratio < 0.20:
+        doji_type  = "Dragonfly Doji"
+        doji_emoji = "🐉"
+
+    # Gravestone Doji: body kecil di bawah, upper wick panjang (bearish, skip)
+    elif body_ratio < 0.12 and upper_ratio >= 0.55 and lower_ratio < 0.20:
+        return None  # bearish reversal, skip
+
+    # Long-legged Doji: wick panjang di kedua sisi
+    elif body_ratio < 0.15 and lower_ratio >= 0.30 and upper_ratio >= 0.25:
+        doji_type  = "Long-legged Doji"
+        doji_emoji = "🦵"
+
+    # Standard Doji: body sangat kecil
+    elif body_ratio < 0.10:
+        doji_type  = "Standard Doji"
+        doji_emoji = "⊕"
+
+    # Spinning Top: body sedikit lebih besar tapi wick dominan
+    elif body_ratio < 0.25 and lower_ratio >= 0.35:
+        doji_type  = "Spinning Top"
+        doji_emoji = "🌀"
+
+    if doji_type is None: return None
+
+    # ── Konfirmasi Bullish Reversal Context ──
+    rsi_val   = r["rsi"]
+    stoch_val = r["stoch"]
+    price     = r["price"]
+    e20       = r["e20"]
+    e50       = r["e50"]
+
+    bullish_score = 0
+    bullish_factors = []
+
+    # RSI oversold
+    if rsi_val < 35:
+        bullish_score += 2
+        bullish_factors.append(f"RSI Oversold ({rsi_val:.0f})")
+    elif rsi_val < 45:
+        bullish_score += 1
+        bullish_factors.append(f"RSI Lemah ({rsi_val:.0f})")
+
+    # Stoch oversold
+    if stoch_val < 20:
+        bullish_score += 2
+        bullish_factors.append(f"Stoch OS ({stoch_val:.0f})")
+    elif stoch_val < 35:
+        bullish_score += 1
+        bullish_factors.append(f"Stoch Lemah ({stoch_val:.0f})")
+
+    # Harga dekat / di bawah MA20 (potential support bounce)
+    if price <= e20 * 1.01:
+        bullish_score += 1
+        bullish_factors.append("Dekat/Di bawah MA20")
+
+    # Harga dekat / di bawah MA50
+    if price <= e50 * 1.01:
+        bullish_score += 1
+        bullish_factors.append("Dekat/Di bawah MA50")
+
+    # Dragonfly bonus
+    if doji_type == "Dragonfly Doji":
+        bullish_score += 1
+        bullish_factors.append("Dragonfly = reversal kuat")
+
+    # Sebelumnya downtrend (2 candle sebelum merah)
+    prev_bearish = closes[-2] < opens[-2] and closes[-3] < opens[-3]
+    if prev_bearish:
+        bullish_score += 1
+        bullish_factors.append("Sebelumnya downtrend")
+
+    if bullish_score < 2: return None  # filter: harus ada minimal 2 faktor
+
+    return {
+        "code":          code,
+        "tf":            tf,
+        "doji_type":     doji_type,
+        "doji_emoji":    doji_emoji,
+        "price":         price,
+        "chg":           r["chg"],
+        "rsi":           rsi_val,
+        "stoch":         stoch_val,
+        "e20":           e20,
+        "e50":           e50,
+        "bull_score":    bullish_score,
+        "bull_factors":  bullish_factors,
+        "body_ratio":    body_ratio,
+        "lower_wick_r":  lower_ratio,
+        "upper_wick_r":  upper_ratio,
+        "liquid":        r.get("liquid", True),
+        "ticker":        r["ticker"],
+    }
+
+def doji_screener_tf(stock_list, tf, max_workers=10):
+    """Scan doji bullish reversal untuk satu TF secara paralel"""
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(detect_doji, code, tf): code for code in stock_list}
+        for future in as_completed(futures):
+            try:
+                res = future.result(timeout=20)
+                if res: results.append(res)
+            except Exception as e:
+                log.warning(f"Doji scan error: {e}")
+    results.sort(key=lambda x: x["bull_score"], reverse=True)
+    return results
+
+def doji_scan_all_tf(stock_list):
+    """Scan doji bullish reversal di 3 TF sekaligus: 1H, 4H, D"""
+    all_results = {}
+    for tf in ["1H", "4H", "D"]:
+        all_results[tf] = doji_screener_tf(stock_list, tf)
+    return all_results
+
+def fmt_doji_msg(results_by_tf, market_name="IDX"):
+    """Format pesan Telegram untuk doji screener hasil"""
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    lines = [f"🕯 *DOJI BULLISH REVERSAL SCAN — {market_name}*", f"🕐 {now_str}",
+             "━━━━━━━━━━━━━━━━━━━━"]
+    total_found = 0
+    for tf in ["1H", "4H", "D"]:
+        hits = results_by_tf.get(tf, [])
+        if not hits: continue
+        tf_label = {"1H": "1 JAM", "4H": "4 JAM", "D": "HARIAN"}[tf]
+        lines.append(f"\n⏱ *TF {tf_label}:* ({len(hits)} saham)")
+        for h in hits[:6]:
+            is_idr = h["ticker"].endswith(".JK")
+            px = f"Rp {h['price']:,.0f}" if is_idr else f"${h['price']:,.2f}"
+            liq = " ⚠️" if not h["liquid"] else ""
+            facs = " | ".join(h["bull_factors"][:2])
+            lines.append(
+                f"  {h['doji_emoji']} *{h['code']}* `{px}` {h['chg']:+.2f}%\n"
+                f"    ↳ {h['doji_type']} | BullScore:`{h['bull_score']}` | {facs}{liq}"
+            )
+        total_found += len(hits)
+    if total_found == 0:
+        lines.append("✅ Tidak ada doji bullish reversal terdeteksi saat ini.")
+    lines += ["━━━━━━━━━━━━━━━━━━━━",
+              "💡 Doji = candle ketidakpastian → potensi reversal naik",
+              "⚠️ Selalu konfirmasi dengan candle berikutnya!",
+              f"⏱ {now_str}"]
+    return "\n".join(lines)
+
 # ══ CHART GENERATOR ══
 def generate_chart(code, tf="D", volume_spikes=None):
     r=get_signal(code,tf)
@@ -522,7 +702,9 @@ async def start(u,c):
         "`/chart PLTR D` — Chart saham US\n\n"
         "🔍 *Screener:*\n"
         "`/screener` atau `/screener idx` — Top picks IDX\n"
-        "`/screener us` atau `/screener_us` — Top picks US stocks\n\n"
+        "`/screener us` atau `/screener_us` — Top picks US stocks\n"
+        "`/doji` — Doji Bullish Reversal scan 1H+4H+1D IDX\n"
+        "`/doji us` — Doji scan US stocks\n\n"
         "🔔 *Alert:*\n"
         "`/alert ENRG 2000` — Notif kalau ENRG tembus 2000\n"
         "`/alerts` — Lihat semua alert aktif\n"
@@ -679,6 +861,45 @@ async def screener_us_exec(u,c,ms=2):
 async def screener_us_cmd(u,c):
     args=c.args; ms=int(args[0]) if args and args[0].isdigit() else 2
     await screener_us_exec(u,c,ms)
+
+# ══ DOJI SCREENER COMMAND ══
+async def doji_cmd(u,c):
+    args=c.args
+    market="idx"
+    for a in args:
+        if a.lower()=="us": market="us"
+        elif a.lower() in ("idx","indo"): market="idx"
+    stock_list = US_STOCKS if market=="us" else IDX_STOCKS
+    market_name = "US" if market=="us" else "IDX"
+    m = await u.message.reply_text(
+        f"🕯 Scanning *Doji Bullish Reversal* {'🇺🇸 '+market_name if market=='us' else '🇮🇩 '+market_name} di TF 1H, 4H, 1D...\n"
+        f"⏳ Mohon tunggu (parallel scan ⚡)", parse_mode="Markdown")
+    try:
+        results = await asyncio.get_event_loop().run_in_executor(
+            None, doji_scan_all_tf, stock_list)
+        msg = fmt_doji_msg(results, market_name)
+        await m.edit_text(msg, parse_mode="Markdown")
+        # Kirim chart saham doji terbaik (prioritas 4H lalu D lalu 1H)
+        best = None; best_tf = "D"
+        for tf in ["4H","D","1H"]:
+            hits = results.get(tf,[])
+            liquid_hits = [h for h in hits if h["liquid"]]
+            if liquid_hits: best=liquid_hits[0]; best_tf=tf; break
+            elif hits: best=hits[0]; best_tf=tf; break
+        if best:
+            buf, _ = generate_chart(best["code"], best_tf)
+            if buf:
+                is_idr = best["ticker"].endswith(".JK")
+                px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+                await u.message.reply_photo(
+                    photo=buf,
+                    caption=(f"🕯 *{best['code']}* | TF:{best_tf} | `{px}`\n"
+                             f"{best['doji_emoji']} {best['doji_type']} | BullScore:`{best['bull_score']}`\n"
+                             f"RSI:`{best['rsi']:.0f}` STOCH:`{best['stoch']:.0f}`\n"
+                             f"💡 {' | '.join(best['bull_factors'][:3])}"),
+                    parse_mode="Markdown")
+    except Exception as e:
+        await m.edit_text(f"❌ Error doji scan: {e}")
 
 # ══ ALERT ══
 async def alert_cmd(u,c):
@@ -985,6 +1206,40 @@ async def flip_pixel_scan(context):
                 await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
         except Exception as e: log.error(f"flip alert uid {uid}: {e}")
 
+async def doji_auto_scan(context):
+    """Auto scan doji bullish reversal IDX tiap 1 jam saat market buka"""
+    if not is_weekday(): return
+    if not auto_users: return
+    if not is_idx_market_open(): return
+    bot = context.bot
+    results = await asyncio.get_event_loop().run_in_executor(
+        None, doji_scan_all_tf, IDX_STOCKS)
+    total = sum(len(v) for v in results.values())
+    if total == 0: return
+    msg = fmt_doji_msg(results, "IDX")
+    for uid in auto_users:
+        try:
+            await bot.send_message(int(uid), msg, parse_mode="Markdown")
+            best = None; best_tf = "D"
+            for tf in ["4H","D","1H"]:
+                hits = results.get(tf,[])
+                liquid_hits = [h for h in hits if h["liquid"]]
+                if liquid_hits: best=liquid_hits[0]; best_tf=tf; break
+                elif hits: best=hits[0]; best_tf=tf; break
+            if best:
+                buf, _ = generate_chart(best["code"], best_tf)
+                if buf:
+                    is_idr = best["ticker"].endswith(".JK")
+                    px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+                    await bot.send_photo(int(uid), photo=buf,
+                        caption=(f"🕯 TOP DOJI: *{best['code']}* | TF:{best_tf} | `{px}`\n"
+                                 f"{best['doji_emoji']} {best['doji_type']} | BullScore:`{best['bull_score']}`\n"
+                                 f"RSI:`{best['rsi']:.0f}` STOCH:`{best['stoch']:.0f}`\n"
+                                 f"💡 {' | '.join(best['bull_factors'][:3])}"),
+                        parse_mode="Markdown")
+        except Exception as e:
+            log.error(f"doji auto scan uid {uid}: {e}")
+
 async def morning_scan(context):
     if not is_weekday(): return
     if not auto_users: return
@@ -1038,6 +1293,7 @@ def run_bot():
     tg=Application.builder().token(TOKEN).build()
     cmds=[("start",start),("help",help_cmd),("flipstatus",flipstatus_cmd),("signal",signal_cmd),("chart",chart_cmd),
           ("screener",screener_cmd),("screener_us",screener_us_cmd),
+          ("doji",doji_cmd),
           ("alert",alert_cmd),("alerts",alerts_cmd),("delalert",delalert_cmd),
           ("wl",wl_cmd),("wladd",wladd_cmd),("wldel",wldel_cmd),("wlscan",wlscan_cmd),
           ("auto",auto_cmd),("volume",volume_cmd),("trend",trend_cmd)]
@@ -1048,6 +1304,7 @@ def run_bot():
     jq.run_repeating(volume_spike_scan_us,interval=900,first=180)
     jq.run_daily(morning_scan,time=dtime(9,0,tzinfo=WIB))
     jq.run_repeating(flip_pixel_scan,interval=1800,first=300)
+    jq.run_repeating(doji_auto_scan,interval=3600,first=600)   # setiap 1 jam saat IDX buka
     log.info("IDX QUANT Bot v3 FAST polling..."); tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
