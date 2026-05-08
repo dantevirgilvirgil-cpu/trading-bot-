@@ -926,6 +926,8 @@ async def tp_cmd(u,c):
         f"💡 SL1=exit cepat | SL2=trend gagal | SL3=cut loss\n"
         f"⏱ {fmt_now()}",
         parse_mode="Markdown")
+
+async def chart_cmd(u,c):
     args=c.args
     if not args: await u.message.reply_text("⚠️ Format: `/chart BBCA` atau `/chart PLTR D`",parse_mode="Markdown"); return
     code=args[0].upper().replace(".JK",""); tf=args[1].upper() if len(args)>1 else "D"
@@ -940,7 +942,6 @@ async def tp_cmd(u,c):
     is_idr=r.get("ticker","").endswith(".JK")
     price_str=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
     ts = calculate_tp_sl(r)
-    is_idr = r.get("ticker","").endswith(".JK")
     caption=(f"📊 *{r['ticker']}* | TF:`{tf}` | `{price_str}` `{r['chg']:+.2f}%`\n"
              f"📈 {r['trend']} | Score:`{r['score']}/8` | {sig_txt} {vspike}{liq_tag}\n"
              f"EMA9:`{r['e9']:,.2f}` MA20:`{r['e20']:,.2f}` MA50:`{r['e50']:,.2f}`\n"
