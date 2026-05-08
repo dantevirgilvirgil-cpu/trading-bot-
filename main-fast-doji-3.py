@@ -690,6 +690,96 @@ def generate_chart(code, tf="D", volume_spikes=None):
 def fmt_now(): return datetime.now(WIB).strftime("%d-%b-%Y %H:%M")+" WIB"
 
 # ══════════════════════════════════════════
+# TP / SL CALCULATOR
+# ══════════════════════════════════════════
+def calculate_tp_sl(r):
+    """
+    Hitung TP1/TP2/TP3 dan SL1/SL2/SL3 otomatis dari data sinyal.
+    Basis: EMA levels, ATR-approx, support/resistance dinamis.
+    Returns dict dengan tp1..tp3, sl1..sl3, rr (risk/reward).
+    """
+    price  = r["price"]
+    e9     = r["e9"]
+    e20    = r["e20"]
+    e50    = r["e50"]
+    is_idr = r["ticker"].endswith(".JK")
+
+    # ── ATR approx: pakai range harga 20 candle terakhir dari df
+    try:
+        df  = r["df"]
+        hi  = df["High"].squeeze().tail(20)
+        lo  = df["Low"].squeeze().tail(20)
+        atr = float((hi - lo).mean())
+    except:
+        atr = price * 0.03   # fallback 3% kalau df tidak tersedia
+
+    # ── Target Price (TP) ──
+    # TP1: EMA9 + 1 ATR  (target cepat)
+    # TP2: EMA9 + 2 ATR  (swing normal)
+    # TP3: EMA9 + 3.5 ATR (extended target)
+    tp1 = price + (1.0 * atr)
+    tp2 = price + (2.0 * atr)
+    tp3 = price + (3.5 * atr)
+
+    # Kalau harga sudah di atas TP1 (misal sudah naik duluan),
+    # shift TP berbasis % relatif supaya tetap masuk akal
+    if tp1 <= price * 1.005:
+        tp1 = price * 1.04
+        tp2 = price * 1.09
+        tp3 = price * 1.16
+
+    # ── Stop Loss (SL) ──
+    # SL1: Di bawah EMA9 tipis — exit awal (3%)
+    # SL2: Di bawah MA20 — trend melemah (6–7%)
+    # SL3: Di bawah MA50 — cut loss (10–12%)
+    sl1 = min(e9  * 0.97,  price * 0.97)
+    sl2 = min(e20 * 0.96,  price * 0.94)
+    sl3 = min(e50 * 0.95,  price * 0.89)
+
+    # Pastikan SL tidak terbalik
+    sl1 = min(sl1, price * 0.97)
+    sl2 = min(sl2, sl1  * 0.97)
+    sl3 = min(sl3, sl2  * 0.97)
+
+    # ── Risk/Reward Ratio (vs SL1) ──
+    risk   = price - sl1
+    reward = tp1   - price
+    rr     = round(reward / risk, 2) if risk > 0 else 0
+
+    def fmt_p(v):
+        return f"Rp {v:,.0f}" if is_idr else f"${v:,.2f}"
+
+    return {
+        "tp1": tp1, "tp2": tp2, "tp3": tp3,
+        "sl1": sl1, "sl2": sl2, "sl3": sl3,
+        "rr":  rr,
+        "atr": atr,
+        "tp1_str": fmt_p(tp1), "tp2_str": fmt_p(tp2), "tp3_str": fmt_p(tp3),
+        "sl1_str": fmt_p(sl1), "sl2_str": fmt_p(sl2), "sl3_str": fmt_p(sl3),
+        "tp1_pct": (tp1-price)/price*100,
+        "tp2_pct": (tp2-price)/price*100,
+        "tp3_pct": (tp3-price)/price*100,
+        "sl1_pct": (sl1-price)/price*100,
+        "sl2_pct": (sl2-price)/price*100,
+        "sl3_pct": (sl3-price)/price*100,
+    }
+
+def fmt_tp_sl_block(ts, is_idr=True):
+    """Format blok TP/SL untuk pesan Telegram"""
+    rr_emoji = "🔥" if ts["rr"] >= 2 else "✅" if ts["rr"] >= 1.5 else "⚠️"
+    return (
+        f"\n🎯 *TARGET PRICE:*\n"
+        f"  TP1: `{ts['tp1_str']}` ({ts['tp1_pct']:+.1f}%)\n"
+        f"  TP2: `{ts['tp2_str']}` ({ts['tp2_pct']:+.1f}%)\n"
+        f"  TP3: `{ts['tp3_str']}` ({ts['tp3_pct']:+.1f}%)\n"
+        f"\n🛡 *STOP LOSS:*\n"
+        f"  SL1: `{ts['sl1_str']}` ({ts['sl1_pct']:+.1f}%) — cut EMA9\n"
+        f"  SL2: `{ts['sl2_str']}` ({ts['sl2_pct']:+.1f}%) — cut MA20\n"
+        f"  SL3: `{ts['sl3_str']}` ({ts['sl3_pct']:+.1f}%) — cut MA50\n"
+        f"\n{rr_emoji} R/R Ratio: `{ts['rr']}x` (vs SL1)"
+    )
+
+# ══════════════════════════════════════════
 # TELEGRAM HANDLERS
 # ══════════════════════════════════════════
 async def start(u,c):
@@ -699,7 +789,8 @@ async def start(u,c):
         "`/signal BBCA` — Signal + indikator\n"
         "`/signal PLTR D` — Saham US juga bisa!\n"
         "`/chart ENRG 1H` — Chart candlestick\n"
-        "`/chart PLTR D` — Chart saham US\n\n"
+        "`/chart PLTR D` — Chart saham US\n"
+        "`/tp ENRG` — TP1/TP2/TP3 + SL1/SL2/SL3 otomatis\n\n"
         "🔍 *Screener:*\n"
         "`/screener` atau `/screener idx` — Top picks IDX\n"
         "`/screener us` atau `/screener_us` — Top picks US stocks\n"
@@ -741,7 +832,8 @@ async def help_cmd(u,c):
         "📖 *IDX QUANT v3 FAST — Command List*\n\n"
         "*Signal & Chart:*\n"
         "`/signal KODE [TF]` — TF: 5M 15M 30M 1H 4H D W M\n"
-        "`/chart KODE [TF]` — Gambar chart candlestick\n\n"
+        "`/chart KODE [TF]` — Gambar chart candlestick\n"
+        "`/tp KODE [TF]` — TP1/TP2/TP3 + SL1/SL2/SL3 + R/R Ratio\n\n"
         "*Screener:*\n"
         "`/screener [idx/min_score]` — IDX screener (parallel)\n"
         "`/screener us` atau `/screener_us` — US stock screener\n\n"
@@ -786,6 +878,8 @@ async def signal_cmd(u,c):
     liq_warn=f"\n⚠️ *LOW LIQUIDITY* — avg vol {r['avg_vol']/1e6:.1f}M, hati-hati gorengan!" if not r.get("liquid",True) else ""
     is_idr=r["ticker"].endswith(".JK")
     price_str=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+    ts = calculate_tp_sl(r)
+    tp_sl_block = fmt_tp_sl_block(ts, is_idr=is_idr)
     await m.edit_text(
         f"⚡ *{r['ticker']}* | TF:`{r['tf']}`\n━━━━━━━━━━━━━━━━━━━━\n"
         f"💰 Harga: *{price_str}*\n{em} Change: `{r['chg']:+.2f}%`\n"
@@ -795,10 +889,43 @@ async def signal_cmd(u,c):
         f"  MACD:  `{r['macd']:.2f}` Sig:`{r['msig']:.2f}`\n"
         f"  STOCH: `{r['stoch']:.1f}`\n  Vol:   `{r['vr']:.1f}x` avg\n\n"
         f"🎯 *Signals:*\n{sx}\n\n"
-        f"{sc} Score:`[{bar}]` {r['score']}/8\n━━━━━━━━━━━━━━━━━━━━\n⏱ {fmt_now()}",
+        f"{sc} Score:`[{bar}]` {r['score']}/8"
+        f"{tp_sl_block}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n⏱ {fmt_now()}",
         parse_mode="Markdown")
 
-async def chart_cmd(u,c):
+async def tp_cmd(u,c):
+    """Command /tp KODE [TF] — tampilkan TP/SL detail"""
+    args=c.args
+    if not args: await u.message.reply_text("⚠️ Format: `/tp BBCA` atau `/tp KETR D`",parse_mode="Markdown"); return
+    code=args[0].upper().replace(".JK",""); tf=args[1].upper() if len(args)>1 else "D"
+    m=await u.message.reply_text(f"⚖️ Hitung TP/SL *{code}* TF:{tf}...",parse_mode="Markdown")
+    r=get_signal(code,tf)
+    if "error" in r: await m.edit_text(f"❌ {r['error']}"); return
+    ts=calculate_tp_sl(r)
+    is_idr=r["ticker"].endswith(".JK")
+    price_str=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+    rr_emoji = "🔥" if ts["rr"]>=2 else "✅" if ts["rr"]>=1.5 else "⚠️"
+    await m.edit_text(
+        f"⚖️ *{r['ticker']}* | TF:`{tf}` | Entry: *{price_str}*\n"
+        f"📊 Trend: {r['trend']} | Score:`{r['score']}/8`\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 *TARGET PRICE:*\n"
+        f"  TP1: `{ts['tp1_str']}` `({ts['tp1_pct']:+.1f}%)`\n"
+        f"  TP2: `{ts['tp2_str']}` `({ts['tp2_pct']:+.1f}%)`\n"
+        f"  TP3: `{ts['tp3_str']}` `({ts['tp3_pct']:+.1f}%)`\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"🛡 *STOP LOSS:*\n"
+        f"  SL1: `{ts['sl1_str']}` `({ts['sl1_pct']:+.1f}%)` — cut EMA9\n"
+        f"  SL2: `{ts['sl2_str']}` `({ts['sl2_pct']:+.1f}%)` — cut MA20\n"
+        f"  SL3: `{ts['sl3_str']}` `({ts['sl3_pct']:+.1f}%)` — cut MA50\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"{rr_emoji} *Risk/Reward Ratio:* `{ts['rr']}x`\n"
+        f"📏 ATR: `{ts['atr']:,.0f}` (basis kalkulasi)\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 SL1=exit cepat | SL2=trend gagal | SL3=cut loss\n"
+        f"⏱ {fmt_now()}",
+        parse_mode="Markdown")
     args=c.args
     if not args: await u.message.reply_text("⚠️ Format: `/chart BBCA` atau `/chart PLTR D`",parse_mode="Markdown"); return
     code=args[0].upper().replace(".JK",""); tf=args[1].upper() if len(args)>1 else "D"
@@ -812,11 +939,20 @@ async def chart_cmd(u,c):
     liq_tag=" | ⚠️LOW LIQ" if not r.get("liquid",True) else ""
     is_idr=r.get("ticker","").endswith(".JK")
     price_str=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+    ts = calculate_tp_sl(r)
+    is_idr = r.get("ticker","").endswith(".JK")
     caption=(f"📊 *{r['ticker']}* | TF:`{tf}` | `{price_str}` `{r['chg']:+.2f}%`\n"
              f"📈 {r['trend']} | Score:`{r['score']}/8` | {sig_txt} {vspike}{liq_tag}\n"
              f"EMA9:`{r['e9']:,.2f}` MA20:`{r['e20']:,.2f}` MA50:`{r['e50']:,.2f}`\n"
              f"RSI:`{r['rsi']:.1f}` MACD:`{r['macd']:.1f}` STOCH:`{r['stoch']:.1f}`\n"
-             f"⏱ {fmt_now()}")
+             f"━━━━━━━━━━━━━━━━\n"
+             f"🎯 TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+             f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%) "
+             f"TP3:`{ts['tp3_str']}`({ts['tp3_pct']:+.1f}%)\n"
+             f"🛡 SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
+             f"SL2:`{ts['sl2_str']}`({ts['sl2_pct']:+.1f}%) "
+             f"SL3:`{ts['sl3_str']}`({ts['sl3_pct']:+.1f}%)\n"
+             f"⚖️ R/R:`{ts['rr']}x` | ⏱ {fmt_now()}")
     await u.message.reply_photo(photo=buf,caption=caption,parse_mode="Markdown")
 
 # ══ SCREENER ══ (pakai parallel scan)
@@ -1235,11 +1371,23 @@ async def doji_auto_scan(context):
                 if buf:
                     is_idr = best["ticker"].endswith(".JK")
                     px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+                    # Ambil sinyal untuk hitung TP/SL
+                    r_best = get_signal(best["code"], best_tf)
+                    ts_cap = ""
+                    if "error" not in r_best:
+                        ts = calculate_tp_sl(r_best)
+                        ts_cap = (f"\n━━━━━━━━━━━━━━━\n"
+                                  f"🎯 TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+                                  f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%)\n"
+                                  f"🛡 SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
+                                  f"SL2:`{ts['sl2_str']}`({ts['sl2_pct']:+.1f}%)\n"
+                                  f"⚖️ R/R:`{ts['rr']}x`")
                     await bot.send_photo(int(uid), photo=buf,
                         caption=(f"🕯 TOP DOJI: *{best['code']}* | TF:{best_tf} | `{px}`\n"
                                  f"{best['doji_emoji']} {best['doji_type']} | BullScore:`{best['bull_score']}`\n"
                                  f"RSI:`{best['rsi']:.0f}` STOCH:`{best['stoch']:.0f}`\n"
-                                 f"💡 {' | '.join(best['bull_factors'][:3])}"),
+                                 f"💡 {' | '.join(best['bull_factors'][:3])}"
+                                 f"{ts_cap}"),
                         parse_mode="Markdown")
         except Exception as e:
             log.error(f"doji auto scan uid {uid}: {e}")
@@ -1265,8 +1413,20 @@ async def morning_scan(context):
             await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
             for r in res[:3]:
                 buf,_=generate_chart(r["code"],"D")
-                if buf: await bot.send_photo(int(uid),photo=buf,
-                    caption=f"📊 {r['code']} | Score:{r['score']}/8 | {r['trend']}")
+                if buf:
+                    ts = calculate_tp_sl(r)
+                    is_idr = r.get("ticker","").endswith(".JK")
+                    await bot.send_photo(int(uid),photo=buf,
+                        caption=(f"📊 *{r['code']}* | Score:{r['score']}/8 | {r['trend']}\n"
+                                 f"━━━━━━━━━━━━━━━\n"
+                                 f"🎯 TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+                                 f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%) "
+                                 f"TP3:`{ts['tp3_str']}`({ts['tp3_pct']:+.1f}%)\n"
+                                 f"🛡 SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
+                                 f"SL2:`{ts['sl2_str']}`({ts['sl2_pct']:+.1f}%) "
+                                 f"SL3:`{ts['sl3_str']}`({ts['sl3_pct']:+.1f}%)\n"
+                                 f"⚖️ R/R:`{ts['rr']}x`"),
+                        parse_mode="Markdown")
         except Exception as e: log.error(f"morning scan error uid {uid}: {e}")
 
 # ══ FLASK ══
@@ -1296,6 +1456,7 @@ def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
     cmds=[("start",start),("help",help_cmd),("flipstatus",flipstatus_cmd),("signal",signal_cmd),("chart",chart_cmd),
+          ("tp",tp_cmd),
           ("screener",screener_cmd),("screener_us",screener_us_cmd),
           ("doji",doji_cmd),
           ("alert",alert_cmd),("alerts",alerts_cmd),("delalert",delalert_cmd),
