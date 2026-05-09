@@ -874,7 +874,8 @@ async def help_cmd(u,c):
         "*Auto Scan:*\n"
         "`/auto on` — Aktifkan (IDX 09:00-15:15 + US 21:30-04:00)\n"
         "`/auto off` — Matikan\n"
-        "`/summary` — Trigger evening summary manual 📋\n\n"
+        "`/summary` — Summary IDX manual 📋\n"
+        "`/summary us` — Summary 🇺🇸 US Stocks manual\n\n"
         "*Market:*\n"
         "`/volume` — Top volume IDX\n"
         "`/trend` — Trend market + IHSG\n\n"
@@ -1669,27 +1670,34 @@ def api_sig(code):
 def run_flask(): app.run(host="0.0.0.0",port=PORT,debug=False,use_reloader=False)
 
 async def summary_cmd(u,c):
-    """Command /summary — trigger evening summary manual kapanpun"""
-    uid = str(u.effective_user.id)
-    m = await u.message.reply_text("📊 Menyiapkan summary, mohon tunggu ~30 detik...", parse_mode="Markdown")
-    now = datetime.now(WIB)
-    date_str = now.strftime("%d %b %Y")
+    """Command /summary [us] — trigger summary manual IDX atau US"""
+    args   = c.args
+    market = "us" if args and args[0].lower() == "us" else "idx"
+    flag   = "🇺🇸" if market == "us" else "🇮🇩"
+    label  = "US STOCKS" if market == "us" else "IDX"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+
+    m = await u.message.reply_text(
+        f"📊 Menyiapkan {flag} *{label} Summary*, tunggu ~30 detik...",
+        parse_mode="Markdown")
+    now          = datetime.now(WIB)
+    date_str     = now.strftime("%d %b %Y")
     weekend_note = " *(Data penutupan Jumat)*" if not is_weekday() else ""
 
     try:
-        # Scan langsung — tidak perlu auto_users
         res = await asyncio.get_event_loop().run_in_executor(
-            None, parallel_signal_scan, IDX_STOCKS, "D", 3)
-        res_liq = [r for r in res if r.get("liquid", True)]
+            None, parallel_signal_scan, stocks, "D", 3)
+        res_liq   = [r for r in res if r.get("liquid", True)]
         fire      = [r for r in res_liq if r["score"] >= 6][:5]
         vol_spike = [r for r in res if r.get("vr",0) >= 2][:5]
+        top_bull  = sorted([r for r in res_liq if r["chg"] > 0], key=lambda x: -x["chg"])[:3]
         top_bear  = sorted([r for r in res_liq if r["chg"] < 0], key=lambda x: x["chg"])[:3]
         up_ct = sum(1 for r in res if r["chg"] >= 0)
         dn_ct = sum(1 for r in res if r["chg"] < 0)
-        mood = "BULLISH 🟢" if up_ct > dn_ct else "BEARISH 🔴" if dn_ct > up_ct else "MIXED ↔"
+        mood  = "BULLISH 🟢" if up_ct > dn_ct else "BEARISH 🔴" if dn_ct > up_ct else "MIXED ↔"
 
         lines = [
-            f"🌆 *EVENING SUMMARY IDX — {date_str}*{weekend_note}",
+            f"{flag} *{label} SUMMARY — {date_str}*{weekend_note}",
             f"🕐 Recap {len(res)} saham",
             "━━━━━━━━━━━━━━━━━━━━",
             f"📊 Mood Pasar: *{mood}*",
@@ -1715,6 +1723,13 @@ async def summary_cmd(u,c):
                 px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
                 lines.append(f"  {em} *{r['code']}* `{px}` {r['chg']:+.2f}% Vol:`{r['vr']:.1f}x`")
             lines.append("")
+        if market == "us" and top_bull:
+            lines.append("🚀 *TOP GAINERS:*")
+            for r in top_bull:
+                ts = calculate_tp_sl(r)
+                px = f"${r['price']:,.2f}"
+                lines.append(f"  🟢 *{r['code']}* `{px}` {r['chg']:+.2f}% TP1:`{ts['tp1_str']}`")
+            lines.append("")
         if top_bear:
             lines.append("📉 *TOP LOSERS:*")
             for r in top_bear:
@@ -1723,7 +1738,8 @@ async def summary_cmd(u,c):
                 lines.append(f"  🔴 *{r['code']}* `{px}` {r['chg']:+.2f}%")
             lines.append("")
         lines += ["━━━━━━━━━━━━━━━━━━━━",
-                  "💡 Gunakan `/screener` untuk full scan",
+                  f"💡 Gunakan `/screener{'_us' if market=='us' else ''}` untuk full scan",
+                  f"📌 `/summary` = IDX | `/summary us` = 🇺🇸 US",
                   f"⏱ {fmt_now()}"]
 
         await m.delete()
@@ -1737,7 +1753,7 @@ async def summary_cmd(u,c):
                 is_idr = best["ticker"].endswith(".JK")
                 px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
                 await u.message.reply_photo(photo=buf,
-                    caption=(f"🏆 *TOP PICK: {best['code']}* | `{px}` {best['chg']:+.2f}%\n"
+                    caption=(f"🏆 *TOP PICK {flag}: {best['code']}* | `{px}` {best['chg']:+.2f}%\n"
                              f"Score:`{best['score']}/8` | {best['trend']}\n"
                              f"━━━━━━━━━━━━━━━\n"
                              f"🎯 TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
