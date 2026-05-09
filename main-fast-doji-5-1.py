@@ -873,7 +873,8 @@ async def help_cmd(u,c):
         "`/wlscan` — Scan signal semua watchlist\n\n"
         "*Auto Scan:*\n"
         "`/auto on` — Aktifkan (IDX 09:00-15:15 + US 21:30-04:00)\n"
-        "`/auto off` — Matikan\n\n"
+        "`/auto off` — Matikan\n"
+        "`/summary` — Trigger evening summary manual 📋\n\n"
         "*Market:*\n"
         "`/volume` — Top volume IDX\n"
         "`/trend` — Trend market + IHSG\n\n"
@@ -1530,9 +1531,9 @@ async def doji_auto_scan(context):
         except Exception as e:
             log.error(f"doji auto scan uid {uid}: {e}")
 
-async def evening_summary(context):
+async def evening_summary(context, force=False):
     """📋 Rekap harian otomatis jam 16:00 WIB — top sinyal, mover, vol spike"""
-    if not is_weekday(): return
+    if not force and not is_weekday(): return
     if not auto_users: return
     bot = context.bot
     now = datetime.now(WIB)
@@ -1667,11 +1668,33 @@ def api_sig(code):
 
 def run_flask(): app.run(host="0.0.0.0",port=PORT,debug=False,use_reloader=False)
 
+async def summary_cmd(u,c):
+    """Command /summary — trigger evening summary manual kapanpun"""
+    uid = str(u.effective_user.id)
+    m = await u.message.reply_text("📊 Menyiapkan evening summary...", parse_mode="Markdown")
+
+    class FakeBot:
+        async def send_message(self, chat_id, text, parse_mode=None):
+            await u.message.reply_text(text, parse_mode=parse_mode)
+        async def send_photo(self, chat_id, photo, caption=None, parse_mode=None):
+            await u.message.reply_photo(photo=photo, caption=caption, parse_mode=parse_mode)
+
+    class FakeContext:
+        bot = FakeBot()
+
+    await m.delete()
+    orig = set(auto_users)
+    auto_users.clear(); auto_users.add(uid)
+    try:
+        await evening_summary(FakeContext(), force=True)
+    finally:
+        auto_users.clear(); auto_users.update(orig)
+
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
     cmds=[("start",start),("help",help_cmd),("flipstatus",flipstatus_cmd),("signal",signal_cmd),("chart",chart_cmd),
-          ("tp",tp_cmd),
+          ("tp",tp_cmd),("summary",summary_cmd),
           ("screener",screener_cmd),("screener_us",screener_us_cmd),
           ("doji",doji_cmd),
           ("alert",alert_cmd),("alerts",alerts_cmd),("delalert",delalert_cmd),
