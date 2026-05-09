@@ -802,7 +802,7 @@ def fmt_tp_sl_block(ts, is_idr=True):
 # ══════════════════════════════════════════
 async def start(u,c):
     await u.message.reply_text(
-        "⚡ *IDX QUANT Bot v3 FAST — T1MO × Wisdom*\n\n"
+        "⚡ *IDX QUANT Bot v4 — T1MO × Wisdom*\n\n"
         "📊 *Chart & Signal:*\n"
         "`/signal BBCA` — Signal + indikator\n"
         "`/signal PLTR D` — Saham US juga bisa!\n"
@@ -830,7 +830,7 @@ async def start(u,c):
         "`/volume` — Top volume IDX\n"
         "`/trend` — Market overview\n"
         "`/help` — Bantuan lengkap\n\n"
-        "⚡ *v3 FAST: Parallel scan 10x lebih cepat + cache data*",
+        "⚡ *v4: TP/SL otomatis + Evening Summary + Hammer/Engulfing detector*",
         parse_mode="Markdown")
 
 async def flipstatus_cmd(u,c):
@@ -847,7 +847,7 @@ async def flipstatus_cmd(u,c):
 
 async def help_cmd(u,c):
     await u.message.reply_text(
-        "📖 *IDX QUANT v3 FAST — Command List*\n\n"
+        "📖 *IDX QUANT v4 — Command List*\n\n"
         "*Signal & Chart:*\n"
         "`/signal KODE [TF]` — TF: 5M 15M 30M 1H 4H D W M\n"
         "`/chart KODE [TF]` — Gambar chart candlestick\n"
@@ -860,7 +860,10 @@ async def help_cmd(u,c):
         "`/doji us` — Scan doji US stocks\n"
         "🤖 Auto alert doji tiap 1 jam saat IDX buka\n\n"
         "*Alert Harga:*\n"
-        "`/alert KODE HARGA` — Set price alert\n"
+        "`/alert KODE HARGA` — Set price alert manual\n"
+        "`/alert KODE tp1` — Alert otomatis di TP1 🎯\n"
+        "`/alert KODE sl1` — Alert otomatis di SL1 🛡\n"
+        "`/alert KODE all` — Set TP1+TP2+SL1 sekaligus 🔥\n"
         "`/alerts` — Lihat semua alert\n"
         "`/delalert KODE` — Hapus alert\n\n"
         "*Watchlist:*\n"
@@ -879,7 +882,7 @@ async def help_cmd(u,c):
         "🔔 Auto alert flip tiap 30 menit (aktifkan /auto on)\n\n"
         "Score: 1-3 Lemah | 4-5 OK | 6+ 🔥\n"
         "⚠️ LOW LIQUIDITY = saham illiquid/gorengan\n"
-        "⚡ v3: Parallel 10 thread + data cache 5 menit",
+        "⚡ v4: TP/SL otomatis | Evening Summary 16:05 | Hammer+Engulfing detector",
         parse_mode="Markdown")
 
 async def signal_cmd(u,c):
@@ -1646,14 +1649,14 @@ app=Flask(__name__)
 @app.route("/")
 def index():
     f=os.path.join(os.path.dirname(__file__),"idx_dashboard_v4.html")
-    return send_file(f) if os.path.exists(f) else ("IDX QUANT v3 FAST",200)
+    return send_file(f) if os.path.exists(f) else ("IDX QUANT v4",200)
 @app.route("/dashboard")
 @app.route("/pixel")
 def pixel_dashboard():
     f=os.path.join(os.path.dirname(__file__),"pixel_dashboard.html")
     return send_file(f) if os.path.exists(f) else ("pixel_dashboard.html not found",404)
 @app.route("/health")
-def health(): return jsonify({"status":"ok","version":"v3-fast","alerts":len(alerts_db),
+def health(): return jsonify({"status":"ok","version":"v4","alerts":len(alerts_db),
                                "auto_users":len(auto_users),"cache_size":len(_data_cache),
                                "idx_market_open":is_idx_market_open(),
                                "us_market_open":is_us_market_open()})
@@ -1683,7 +1686,7 @@ def run_bot():
     jq.run_daily(evening_summary,time=dtime(16,5,tzinfo=WIB))  # recap sore jam 16:05 WIB
     jq.run_repeating(flip_pixel_scan,interval=1800,first=300)
     jq.run_repeating(doji_auto_scan,interval=3600,first=600)   # setiap 1 jam saat IDX buka
-    log.info("IDX QUANT Bot v3 FAST polling..."); tg.run_polling(allowed_updates=Update.ALL_TYPES)
+    log.info("IDX QUANT Bot v4 polling..."); tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
     log.info(f"IDX QUANT v3 FAST port {PORT}")
