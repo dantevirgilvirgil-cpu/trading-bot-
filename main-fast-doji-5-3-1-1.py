@@ -1324,41 +1324,86 @@ async def trend_cmd(u,c):
 # ══ BACKGROUND JOBS ══
 
 async def volume_spike_scan_idx(context):
-    # ✅ FIX: is_idx_market_open() sudah include weekday check, tapi eksplisit lebih aman
+    """
+    Volume spike IDX — scan di TF masif saja: 30M, 1H, 4H, Daily.
+    5M dan 15M dihapus karena terlalu noise dan sering false signal.
+    Alert hanya dikirim kalau spike terdeteksi di minimal 2 TF.
+    """
     if not is_weekday(): return
     if not is_idx_market_open(): return
     if not auto_users: return
-    bot=context.bot
-    # ✅ FIX: Parallel scan semua IDX stocks
-    spikes = await asyncio.get_event_loop().run_in_executor(
-        None, parallel_scan, IDX_STOCKS, "5M", 2.5)
+    bot = context.bot
+
+    # TF yang dipakai: 30M, 1H, 4H, Daily
+    tf_list = ["30M", "1H", "4H", "D"]
+
+    def scan_multi_tf(code):
+        """Scan volume spike di semua TF, return kalau ada minimal di 2 TF"""
+        spike_tfs = []
+        result_ref = None
+        for tf in tf_list:
+            spikes = parallel_scan([code], tf, 2.0)  # threshold 2x untuk TF besar
+            if spikes:
+                spike_tfs.append(tf)
+                if result_ref is None:
+                    result_ref = spikes[0]
+        if len(spike_tfs) >= 2 and result_ref:
+            result_ref["confirmed_tfs"] = spike_tfs
+            return result_ref
+        return None
+
+    loop = asyncio.get_event_loop()
+    results = await loop.run_in_executor(
+        None, lambda: [scan_multi_tf(c) for c in IDX_STOCKS])
+    spikes = [r for r in results if r]
     if not spikes: return
+
+    # Sort by volume ratio
+    spikes.sort(key=lambda x: x["vr"], reverse=True)
+
     for uid in auto_users:
         try:
-            lines=["⚡ *🇮🇩 IDX VOLUME SPIKE ALERT!*","━━━━━━━━━━━━━━━━━━━━"]
-            buy_spikes=[s for s in spikes if s["direction"]=="BUY"]
-            sell_spikes=[s for s in spikes if s["direction"]=="SELL"]
-            if buy_spikes:
+            now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+            lines = [
+                "⚡ *🇮🇩 IDX VOLUME SPIKE — MULTI TF*",
+                "📌 Konfirmasi minimal 2 TF: 30M/1H/4H/Daily",
+                "━━━━━━━━━━━━━━━━━━━━"
+            ]
+            buy_s  = [s for s in spikes if s["direction"] == "BUY"]
+            sell_s = [s for s in spikes if s["direction"] == "SELL"]
+            if buy_s:
                 lines.append("🟢 *BUY VOLUME SPIKE:*")
-                for s in buy_spikes[:5]:
-                    liq=" ⚠️ILLIQUID" if not s.get("liquid",True) else ""
-                    lines.append(f"  ▲ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x{liq}")
-            if sell_spikes:
+                for s in buy_s[:5]:
+                    liq = " ⚠️ILL" if not s.get("liquid", True) else ""
+                    tfs = "+".join(s.get("confirmed_tfs", []))
+                    lines.append(
+                        f"  ▲ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% "
+                        f"Vol:`{s['vr']:.1f}x` TF:`{tfs}`{liq}"
+                    )
+            if sell_s:
                 lines.append("🔴 *SELL VOLUME SPIKE:*")
-                for s in sell_spikes[:5]:
-                    liq=" ⚠️ILLIQUID" if not s.get("liquid",True) else ""
-                    lines.append(f"  ▼ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x{liq}")
-            lines+=["━━━━━━━━━━━━━━━━━━━━",f"⏱ {fmt_now()}"]
-            await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-            liquid_spikes=[s for s in spikes if s.get("liquid",True)]
-            top=liquid_spikes[0] if liquid_spikes else spikes[0]
-            buf,_=generate_chart(top["code"],"5M")
+                for s in sell_s[:5]:
+                    liq = " ⚠️ILL" if not s.get("liquid", True) else ""
+                    tfs = "+".join(s.get("confirmed_tfs", []))
+                    lines.append(
+                        f"  ▼ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% "
+                        f"Vol:`{s['vr']:.1f}x` TF:`{tfs}`{liq}"
+                    )
+            lines += ["━━━━━━━━━━━━━━━━━━━━", f"⏱ {now_str}"]
+            await bot.send_message(int(uid), "\n".join(lines), parse_mode="Markdown")
+            # Chart dari TF terpanjang yang terdeteksi
+            top = [s for s in spikes if s.get("liquid", True)]
+            top = top[0] if top else spikes[0]
+            chart_tf = top.get("confirmed_tfs", ["1H"])[-1]  # TF terpanjang
+            buf, _ = generate_chart(top["code"], chart_tf)
             if buf:
-                dir_txt="🟢 BUY SPIKE" if top["direction"]=="BUY" else "🔴 SELL SPIKE"
-                liq_tag=" | ⚠️LOW LIQ" if not top.get("liquid",True) else ""
-                await bot.send_photo(int(uid),photo=buf,
-                    caption=f"📊 {top['code']} | {dir_txt} | Vol:{top['vr']:.1f}x avg{liq_tag} | {fmt_now()}")
-        except Exception as e: log.error(f"IDX spike alert error uid {uid}: {e}")
+                dir_txt = "🟢 BUY" if top["direction"] == "BUY" else "🔴 SELL"
+                tfs = "+".join(top.get("confirmed_tfs", []))
+                await bot.send_photo(int(uid), photo=buf,
+                    caption=(f"📊 {top['code']} | {dir_txt} SPIKE | "
+                             f"Vol:{top['vr']:.1f}x | TF:{tfs} | {now_str}"))
+        except Exception as e:
+            log.error(f"IDX spike alert error uid {uid}: {e}")
 
 async def volume_spike_scan_us(context):
     # ✅ FIX: Skip weekend — US market juga tutup Sabtu/Minggu
@@ -1395,62 +1440,92 @@ async def volume_spike_scan_us(context):
         except Exception as e: log.error(f"US spike alert error uid {uid}: {e}")
 
 async def flip_pixel_scan(context):
+    """
+    Flip scan: deteksi saham BEARISH ➜ BULLISH saja.
+    TF yang dipakai: 4H dan Daily — cukup masif, tidak noise seperti 5M/15M.
+    Konfirmasi: saham harus flip di KEDUA TF (4H dan D) = sinyal lebih kuat.
+    """
     if not is_weekday(): return
     if not auto_users: return
-    if not (is_idx_market_open() or is_us_market_open()): return
-    bot=context.bot
-    all_stocks=[(c,"D") for c in IDX_STOCKS]+[(c,"D") for c in US_STOCKS[:20]]
-    flips_bull=[]; flips_bear=[]
+    if not is_idx_market_open(): return  # hanya IDX jam buka
+    bot = context.bot
 
-    def check_flip(code_tf):
-        code,tf=code_tf
-        new_state=get_trend_state(code,tf)
-        if new_state is None: return None
-        old_state=flip_state_db.get(code,"neutral")
-        flip_state_db[code]=new_state
-        if old_state in ("bear","neutral") and new_state=="bull":
-            r=get_signal(code,tf)
-            if "error" not in r and r.get("liquid",True): return ("bull",code,r)
-        elif old_state in ("bull","neutral") and new_state=="bear":
-            r=get_signal(code,tf)
-            if "error" not in r: return ("bear",code,r)
+    # Scan di 2 TF saja: 4H dan Daily
+    tfs_to_check = ["4H", "D"]
+    # state key: "ENRG_4H", "ENRG_D"
+    flips_bull = []  # (code, r_daily, tf_confirmed)
+
+    def check_flip_multi(code):
+        """Cek flip bearish→bullish di 4H DAN Daily"""
+        confirmed_tfs = []
+        r_daily = None
+        for tf in tfs_to_check:
+            key = f"{code}_{tf}"
+            new_state = get_trend_state(code, tf)
+            if new_state is None: continue
+            old_state = flip_state_db.get(key, "neutral")
+            flip_state_db[key] = new_state
+            # Hanya bearish/neutral ➜ bullish yang kita alert
+            if old_state in ("bear", "neutral") and new_state == "bull":
+                confirmed_tfs.append(tf)
+        # Ambil data signal dari Daily untuk info harga
+        if confirmed_tfs:
+            r_daily = get_signal(code, "D")
+            if "error" in r_daily: return None
+            if not r_daily.get("liquid", True): return None  # skip illiquid
+            return (code, r_daily, confirmed_tfs)
         return None
 
-    loop=asyncio.get_event_loop()
-    results=await loop.run_in_executor(None,lambda:[check_flip(ct) for ct in all_stocks])
+    loop = asyncio.get_event_loop()
+    all_codes = IDX_STOCKS + US_STOCKS[:20]
+    results = await loop.run_in_executor(
+        None, lambda: [check_flip_multi(c) for c in all_codes])
+
     for res in results:
-        if res is None: continue
-        direction,code,r=res
-        if direction=="bull": flips_bull.append((code,r))
-        else: flips_bear.append((code,r))
-    save_json(FLIP_FILE,flip_state_db)
-    if not flips_bull and not flips_bear: return
-    now_str=datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+        if res: flips_bull.append(res)
+
+    save_json(FLIP_FILE, flip_state_db)
+    if not flips_bull: return
+
+    # Sort: prioritaskan yang konfirmasi di kedua TF (4H+D)
+    flips_bull.sort(key=lambda x: len(x[2]), reverse=True)
+
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
     for uid in auto_users:
         try:
-            if flips_bull:
-                lines=["🚀 *PIXEL FLIP — BEARISH ➜ BULLISH*",f"🕐 {now_str}","━━━━━━━━━━━━━━━━━━━━"]
-                for code,r in flips_bull[:6]:
-                    is_idr=code.endswith(".JK")
-                    px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
-                    chg=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
-                    sig=r['sigs'][0].split('-')[0].strip() if r['sigs'] else 'No Signal'
-                    lines.append(f"✅ *{code}* `{px}` {chg} | Score:`{r['score']}/8` | {sig}")
-                lines+=["━━━━━━━━━━━━━━━━━━━━","📊 EMA: Price > EMA9 > MA20 > MA50","💡 Konfirmasi entry!"]
-                await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-                buf,_=generate_chart(flips_bull[0][0],"D")
-                if buf: await bot.send_photo(int(uid),photo=buf,
-                    caption=f"🚀 FLIP BULLISH: {flips_bull[0][0]} | Score:{flips_bull[0][1]['score']}/8 | {now_str}")
-            if flips_bear:
-                lines=["⚠️ *PIXEL FLIP — BULLISH ➜ BEARISH*",f"🕐 {now_str}","━━━━━━━━━━━━━━━━━━━━"]
-                for code,r in flips_bear[:6]:
-                    is_idr=code.endswith(".JK")
-                    px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
-                    chg=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
-                    lines.append(f"🔴 *{code}* `{px}` {chg} | Score:`{r['score']}/8` | CUT/AVOID")
-                lines+=["━━━━━━━━━━━━━━━━━━━━","📊 EMA: Price < EMA9 < MA20 < MA50","⚡ Waspada distribusi!"]
-                await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-        except Exception as e: log.error(f"flip alert uid {uid}: {e}")
+            lines = [
+                "🚀 *PIXEL FLIP — BEARISH ➜ BULLISH*",
+                f"🕐 {now_str}",
+                "📌 Konfirmasi: TF 4H + Daily",
+                "━━━━━━━━━━━━━━━━━━━━"
+            ]
+            for code, r, tfs in flips_bull[:8]:
+                is_idr = r["ticker"].endswith(".JK")
+                px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                chg = f"+{r['chg']:.2f}%" if r['chg'] >= 0 else f"{r['chg']:.2f}%"
+                sig = r['sigs'][0].split('-')[0].strip() if r['sigs'] else '—'
+                # Badge TF konfirmasi
+                tf_badge = "🔥4H+D" if len(tfs) == 2 else f"✅{tfs[0]}"
+                lines.append(
+                    f"{tf_badge} *{code}* `{px}` {chg} | Score:`{r['score']}/8` | {sig}"
+                )
+            lines += [
+                "━━━━━━━━━━━━━━━━━━━━",
+                "📊 EMA: Price > EMA9 > MA20 > MA50",
+                "💡 🔥 = konfirmasi 4H+Daily (lebih kuat)"
+            ]
+            await bot.send_message(int(uid), "\n".join(lines), parse_mode="Markdown")
+            # Kirim chart Daily saham teratas
+            top_code = flips_bull[0][0]
+            buf, _ = generate_chart(top_code, "D")
+            if buf:
+                tfs_str = "+".join(flips_bull[0][2])
+                await bot.send_photo(int(uid), photo=buf,
+                    caption=(f"🚀 FLIP BULLISH: *{top_code}* | TF:{tfs_str} | "
+                             f"Score:{flips_bull[0][1]['score']}/8 | {now_str}"),
+                    parse_mode="Markdown")
+        except Exception as e:
+            log.error(f"flip alert uid {uid}: {e}")
 
 async def doji_auto_scan(context):
     """Auto scan doji bullish reversal IDX tiap 1 jam saat market buka"""
