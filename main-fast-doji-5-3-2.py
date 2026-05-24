@@ -2,6 +2,11 @@ import os,threading,logging,io,json
 import yfinance as yf
 import pandas as pd
 import numpy as np
+try:
+    from scipy import stats as sp_stats
+    _HAS_SCIPY = True
+except ImportError:
+    _HAS_SCIPY = False
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -419,6 +424,262 @@ def fmt_doji_msg(results_by_tf, market_name="IDX"):
               f"⏱ {now_str}"]
     return "\n".join(lines)
 
+# ══════════════════════════════════════════════════════════════
+# PATTERN DETECTION: Trendline, Triangle, Cup&Handle, Double Bottom
+# ══════════════════════════════════════════════════════════════
+
+def detect_trendlines(highs, lows, n=30):
+    """
+    Deteksi upper & lower trendline dari pivot high/low.
+    Return dict dengan slope, intercept, dan titik-titik garis.
+    """
+    from scipy import stats as sp_stats
+
+    # Ambil n candle terakhir
+    h = highs[-n:]
+    l = lows[-n:]
+    x = np.arange(len(h))
+
+    # Pivot High: local maxima (window 3)
+    ph_idx = [i for i in range(1, len(h)-1) if h[i] >= h[i-1] and h[i] >= h[i+1]]
+    # Pivot Low: local minima (window 3)
+    pl_idx = [i for i in range(1, len(l)-1) if l[i] <= l[i-1] and l[i] <= l[i+1]]
+
+    result = {}
+
+    # Upper trendline (pivot highs)
+    if len(ph_idx) >= 2:
+        px = np.array(ph_idx); py = np.array([h[i] for i in ph_idx])
+        slope, intercept, _, _, _ = sp_stats.linregress(px, py)
+        result["upper"] = {"slope": slope, "intercept": intercept,
+                           "x0": 0, "x1": len(h)-1,
+                           "y0": intercept, "y1": slope*(len(h)-1)+intercept,
+                           "pivot_x": ph_idx, "pivot_y": [h[i] for i in ph_idx]}
+
+    # Lower trendline (pivot lows)
+    if len(pl_idx) >= 2:
+        px = np.array(pl_idx); py = np.array([l[i] for i in pl_idx])
+        slope, intercept, _, _, _ = sp_stats.linregress(px, py)
+        result["lower"] = {"slope": slope, "intercept": intercept,
+                           "x0": 0, "x1": len(l)-1,
+                           "y0": intercept, "y1": slope*(len(l)-1)+intercept,
+                           "pivot_x": pl_idx, "pivot_y": [l[i] for i in pl_idx]}
+
+    return result
+
+def detect_triangle(highs, lows, closes, n=40):
+    """
+    Deteksi pola triangle: Ascending, Descending, Symmetrical.
+    Return: dict {type, quality, upper_line, lower_line, apex_x} atau None
+    """
+    try:
+        from scipy import stats as sp_stats
+        h = highs[-n:]; l = lows[-n:]; c = closes[-n:]
+        x = np.arange(len(h))
+
+        ph_idx = [i for i in range(1, len(h)-1) if h[i] >= h[i-1] and h[i] >= h[i+1]]
+        pl_idx = [i for i in range(1, len(l)-1) if l[i] <= l[i-1] and l[i] <= l[i+1]]
+
+        if len(ph_idx) < 2 or len(pl_idx) < 2: return None
+
+        # Fit trendlines
+        ux = np.array(ph_idx); uy = np.array([h[i] for i in ph_idx])
+        lx = np.array(pl_idx); ly = np.array([l[i] for i in pl_idx])
+
+        us, ui, _, _, _ = sp_stats.linregress(ux, uy)
+        ls, li, _, _, _ = sp_stats.linregress(lx, ly)
+
+        # Apex: titik pertemuan dua garis
+        if abs(us - ls) < 1e-8: return None
+        apex_x = (li - ui) / (us - ls)
+
+        # Pattern classification
+        asc_threshold = 0.0005 * float(np.mean(h))
+        if abs(us) <= asc_threshold and ls > asc_threshold:
+            pat_type = "Ascending Triangle 📐"
+            quality = "BULLISH BREAKOUT"
+        elif us < -asc_threshold and abs(ls) <= asc_threshold:
+            pat_type = "Descending Triangle 📐"
+            quality = "BEARISH BREAKDOWN"
+        elif us < -asc_threshold and ls > asc_threshold:
+            pat_type = "Symmetrical Triangle 🔺"
+            quality = "BREAKOUT PENDING"
+        else:
+            return None
+
+        # Cek apakah apex masih di depan (belum expired)
+        if apex_x < len(h) * 0.7: return None  # terlalu jauh ke belakang
+
+        return {
+            "type": pat_type,
+            "quality": quality,
+            "upper_slope": us, "upper_intercept": ui,
+            "lower_slope": ls, "lower_intercept": li,
+            "apex_x": apex_x,
+            "n_used": n,
+            "ph_idx": ph_idx, "ph_y": [h[i] for i in ph_idx],
+            "pl_idx": pl_idx, "pl_y": [l[i] for i in pl_idx],
+        }
+    except:
+        return None
+
+def detect_double_bottom(lows, closes, n=60):
+    """
+    Deteksi Double Bottom (W pattern).
+    Return: dict {bottom1_x, bottom2_x, neckline, depth_pct, confirmed} atau None
+    """
+    try:
+        l = lows[-n:]; c = closes[-n:]
+
+        # Cari local minima yang dalam
+        pl_idx = []
+        for i in range(2, len(l)-2):
+            if (l[i] < l[i-1] and l[i] < l[i-2] and l[i] < l[i+1] and l[i] < l[i+2]):
+                pl_idx.append(i)
+
+        if len(pl_idx) < 2: return None
+
+        # Ambil 2 bottom terdalam dari semua pivot low
+        sorted_pl = sorted(pl_idx, key=lambda i: l[i])[:4]
+        sorted_pl.sort()  # sorted by position
+
+        best = None
+        for i in range(len(sorted_pl)-1):
+            b1 = sorted_pl[i]; b2 = sorted_pl[i+1]
+            if b2 - b1 < 5: continue  # terlalu berdekatan
+
+            y1 = l[b1]; y2 = l[b2]
+            # Bottom harus hampir sama tingginya (max 3% beda)
+            if abs(y1-y2)/max(y1,y2) > 0.03: continue
+
+            # Cari neckline: max harga antara 2 bottom
+            neckline = float(max(c[b1:b2+1]))
+            depth_pct = (neckline - min(y1,y2)) / neckline * 100
+
+            if depth_pct < 3: continue  # terlalu dangkal
+
+            # Cek apakah harga sekarang sudah break neckline (konfirmasi)
+            current_price = float(c[-1])
+            confirmed = current_price >= neckline * 0.99
+
+            if best is None or depth_pct > best["depth_pct"]:
+                best = {
+                    "bottom1_x": b1, "bottom2_x": b2,
+                    "bottom1_y": y1, "bottom2_y": y2,
+                    "neckline": neckline, "depth_pct": depth_pct,
+                    "confirmed": confirmed, "n_used": n
+                }
+
+        return best
+    except:
+        return None
+
+def detect_cup_and_handle(closes, highs, lows, n=60):
+    """
+    Deteksi Cup & Handle pattern.
+    Ciri: rounding bottom (cup) diikuti konsolidasi kecil (handle),
+    lalu potensi breakout.
+    Return: dict {cup_left, cup_bottom, cup_right, handle_low, breakout_level, quality} atau None
+    """
+    try:
+        c = closes[-n:]; h = highs[-n:]; l = lows[-n:]
+        x = np.arange(len(c))
+
+        if len(c) < 20: return None
+
+        # Cari high tertinggi di sepertiga awal (cup left rim)
+        left_third = len(c) // 3
+        cup_left_x = int(np.argmax(c[:left_third]))
+        cup_left_y = float(c[cup_left_x])
+
+        # Cari bottom cup (terendah di tengah)
+        mid_start = left_third; mid_end = 2 * left_third
+        cup_bottom_x = int(np.argmin(c[mid_start:mid_end])) + mid_start
+        cup_bottom_y = float(c[cup_bottom_x])
+
+        # Cari right rim (high mirip cup_left di sepertiga akhir)
+        right_third_start = 2 * left_third
+        cup_right_x = int(np.argmax(c[right_third_start:])) + right_third_start
+        cup_right_y = float(c[cup_right_x])
+
+        # Validasi: right rim harus mendekati left rim (max 5% beda)
+        if abs(cup_left_y - cup_right_y) / cup_left_y > 0.05: return None
+
+        # Validasi: depth cup harus cukup dalam (min 5%)
+        cup_depth = (cup_left_y - cup_bottom_y) / cup_left_y * 100
+        if cup_depth < 5: return None
+
+        # Handle: konsolidasi setelah cup_right (10-20% dari sisa data)
+        handle_start = cup_right_x
+        if handle_start >= len(c) - 3: return None
+        handle_segment = c[handle_start:]
+        handle_low_x = int(np.argmin(handle_segment)) + handle_start
+        handle_low_y = float(c[handle_low_x])
+
+        # Handle tidak boleh turun lebih dari 50% depth cup
+        handle_pullback = (cup_right_y - handle_low_y) / cup_right_y * 100
+        if handle_pullback > cup_depth * 0.5: return None
+
+        # Breakout level = cup right rim
+        breakout_level = cup_right_y
+        current_price = float(c[-1])
+        confirmed = current_price >= breakout_level * 0.99
+
+        return {
+            "cup_left_x": cup_left_x, "cup_left_y": cup_left_y,
+            "cup_bottom_x": cup_bottom_x, "cup_bottom_y": cup_bottom_y,
+            "cup_right_x": cup_right_x, "cup_right_y": cup_right_y,
+            "handle_low_x": handle_low_x, "handle_low_y": handle_low_y,
+            "breakout_level": breakout_level,
+            "cup_depth_pct": cup_depth,
+            "handle_pullback_pct": handle_pullback,
+            "confirmed": confirmed,
+            "n_used": n
+        }
+    except:
+        return None
+
+def detect_all_patterns(df, n=60):
+    """
+    Jalankan semua pattern detector sekaligus.
+    Return dict: {trendlines, triangle, double_bottom, cup_handle}
+    """
+    close = df["Close"].squeeze().values[-n:]
+    high  = df["High"].squeeze().values[-n:]
+    low   = df["Low"].squeeze().values[-n:]
+
+    result = {}
+    try: result["trendlines"]    = detect_trendlines(high, low, min(n, 30))
+    except: result["trendlines"] = {}
+    try: result["triangle"]      = detect_triangle(high, low, close, min(n, 40))
+    except: result["triangle"]   = None
+    try: result["double_bottom"] = detect_double_bottom(low, close, n)
+    except: result["double_bottom"] = None
+    try: result["cup_handle"]    = detect_cup_and_handle(close, high, low, n)
+    except: result["cup_handle"] = None
+
+    return result
+
+def fmt_patterns_text(patterns, price_fmt):
+    """Format ringkasan pola untuk caption Telegram"""
+    lines = []
+    tri = patterns.get("triangle")
+    if tri:
+        lines.append(f"📐 *{tri['type']}* — {tri['quality']}")
+
+    db = patterns.get("double_bottom")
+    if db:
+        status = "✅ CONFIRMED" if db["confirmed"] else "⏳ FORMING"
+        lines.append(f"〰️ *Double Bottom* {status} | Neck:`{price_fmt(db['neckline'])}` Depth:`{db['depth_pct']:.1f}%`")
+
+    ch = patterns.get("cup_handle")
+    if ch:
+        status = "✅ BREAKOUT" if ch["confirmed"] else "⏳ FORMING"
+        lines.append(f"☕ *Cup & Handle* {status} | BO:`{price_fmt(ch['breakout_level'])}` Depth:`{ch['cup_depth_pct']:.1f}%`")
+
+    return "\n".join(lines) if lines else ""
+
+
 # ══ CHART GENERATOR ══
 def generate_chart(code, tf="D", volume_spikes=None):
     r=get_signal(code,tf)
@@ -567,6 +828,98 @@ def generate_chart(code, tf="D", volume_spikes=None):
     ax1.axhline(lp,color=pc_,linewidth=0.8,linestyle='--',alpha=0.8)
     ax1.text(n-0.5,lp,f" {price_fmt(lp)}",color="white",fontsize=8,fontweight='bold',va='center',
              bbox=dict(boxstyle='round,pad=0.25',facecolor=pc_,edgecolor=pc_,linewidth=0))
+
+    # ══ PATTERN DETECTION & DRAWING ══
+    try:
+        # Offset x supaya pattern align dengan candle chart
+        p_offset = n - 60 if n >= 60 else 0
+
+        # ── TRENDLINES ──
+        tl = detect_trendlines(highs, lows, min(n, 30))
+        tl_offset = n - min(n, 30)
+        if "upper" in tl:
+            u = tl["upper"]
+            x0 = tl_offset + u["x0"]; x1 = tl_offset + u["x1"]
+            ax1.plot([x0, x1],[u["y0"], u["y1"]],
+                     color="#f39c12", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
+                     label="Upper TL")
+            # Pivot dots
+            for px2, py2 in zip([tl_offset+px3 for px3 in u["pivot_x"]], u["pivot_y"]):
+                ax1.scatter(px2, py2, color="#f39c12", s=18, zorder=8, alpha=0.8)
+
+        if "lower" in tl:
+            lo2 = tl["lower"]
+            x0 = tl_offset + lo2["x0"]; x1 = tl_offset + lo2["x1"]
+            ax1.plot([x0, x1],[lo2["y0"], lo2["y1"]],
+                     color="#27ae60", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
+                     label="Lower TL")
+            for px2, py2 in zip([tl_offset+px3 for px3 in lo2["pivot_x"]], lo2["pivot_y"]):
+                ax1.scatter(px2, py2, color="#27ae60", s=18, zorder=8, alpha=0.8)
+
+        # ── TRIANGLE ──
+        tri = detect_triangle(highs, lows, closes, min(n, 40))
+        tri_offset = n - min(n, 40)
+        if tri:
+            xs = np.arange(min(n, 40))
+            upper_line = tri["upper_slope"] * xs + tri["upper_intercept"]
+            lower_line = tri["lower_slope"] * xs + tri["lower_intercept"]
+            xs_plot = xs + tri_offset
+            tri_color = "#e74c3c" if "Descending" in tri["type"] else "#2ecc71" if "Ascending" in tri["type"] else "#9b59b6"
+            ax1.plot(xs_plot, upper_line, color=tri_color, linewidth=1.8, linestyle='-', alpha=0.75, zorder=7)
+            ax1.plot(xs_plot, lower_line, color=tri_color, linewidth=1.8, linestyle='-', alpha=0.75, zorder=7)
+            # Shaded area
+            ax1.fill_between(xs_plot, lower_line, upper_line, alpha=0.04, color=tri_color, zorder=2)
+            # Label
+            mid_y = (upper_line[-1] + lower_line[-1]) / 2
+            ax1.text(xs_plot[-1]+0.5, mid_y, f" {tri['type'].split()[0]}\n {tri['quality']}",
+                     color=tri_color, fontsize=6, va='center', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor=tri_color, alpha=0.7, linewidth=0.7))
+
+        # ── DOUBLE BOTTOM ──
+        db = detect_double_bottom(lows, closes, min(n, 60))
+        db_offset = n - min(n, 60)
+        if db:
+            b1x = db_offset + db["bottom1_x"]; b2x = db_offset + db["bottom2_x"]
+            # Mark bottoms
+            ax1.scatter([b1x, b2x], [db["bottom1_y"], db["bottom2_y"]],
+                        color="#3498db", s=50, zorder=9, marker='v', alpha=0.9)
+            # Neckline
+            ax1.axhline(db["neckline"], color="#3498db", linewidth=1.3,
+                        linestyle='-.', alpha=0.8, xmin=b1x/n, zorder=7)
+            db_status = "✓ CONFIRMED" if db["confirmed"] else "FORMING"
+            ax1.text(b2x+1, db["neckline"]*1.002,
+                     f" 〰️ Double Bottom {db_status} | {db['depth_pct']:.1f}%",
+                     color="#3498db", fontsize=6.5, va='bottom', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor="#3498db", alpha=0.75, linewidth=0.7))
+
+        # ── CUP & HANDLE ──
+        ch = detect_cup_and_handle(closes, highs, lows, min(n, 60))
+        ch_offset = n - min(n, 60)
+        if ch:
+            # Draw cup arc (simplified as polyline through key points)
+            cx = [ch_offset + ch["cup_left_x"], ch_offset + ch["cup_bottom_x"], ch_offset + ch["cup_right_x"]]
+            cy = [ch["cup_left_y"], ch["cup_bottom_y"], ch["cup_right_y"]]
+            ax1.plot(cx, cy, color="#e67e22", linewidth=2.0, linestyle='-', alpha=0.7, zorder=7)
+            # Handle
+            hx = [ch_offset + ch["cup_right_x"], ch_offset + ch["handle_low_x"]]
+            hy = [ch["cup_right_y"], ch["handle_low_y"]]
+            ax1.plot(hx, hy, color="#e67e22", linewidth=1.5, linestyle='--', alpha=0.7, zorder=7)
+            # Breakout level
+            ax1.axhline(ch["breakout_level"], color="#e67e22", linewidth=1.2,
+                        linestyle='-.', alpha=0.8, zorder=7)
+            ch_status = "☕ BREAKOUT" if ch["confirmed"] else "☕ C&H FORMING"
+            ax1.text(ch_offset + ch["cup_right_x"]+1, ch["breakout_level"]*1.002,
+                     f" {ch_status} | Depth:{ch['cup_depth_pct']:.1f}%",
+                     color="#e67e22", fontsize=6.5, va='bottom', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor="#e67e22", alpha=0.75, linewidth=0.7))
+            # Key points markers
+            ax1.scatter([ch_offset+ch["cup_left_x"], ch_offset+ch["cup_right_x"]],
+                        [ch["cup_left_y"], ch["cup_right_y"]],
+                        color="#e67e22", s=30, zorder=9, marker='o', alpha=0.9)
+            ax1.scatter([ch_offset+ch["cup_bottom_x"]], [ch["cup_bottom_y"]],
+                        color="#e67e22", s=40, zorder=9, marker='v', alpha=0.9)
+    except Exception as pat_err:
+        log.warning(f"Pattern draw error: {pat_err}")
 
     if not r.get("liquid",True):
         ax1.text(n/2,(swing_high+swing_low)/2,"⚠️ LOW LIQUIDITY",
@@ -814,7 +1167,7 @@ async def start(u,c):
         "`/doji` — Doji Bullish Reversal scan 1H+4H+1D IDX\n"
         "`/doji us` — Doji scan US stocks\n\n"
         "🌊 *Volume Momentum (BARU):*\n"
-        "`/volmom` — IDX: volume naik terus 30M→1H→4H→Daily\n"
+        "`/volmom` — IDX: volume naik terus 5M→15M→30M→1H\n"
         "`/volmom us` — US stocks volume momentum\n\n"
         "🤖 *Auto Scan:*\n"
         "`/auto on` — Aktifkan auto scan\n"
@@ -853,7 +1206,7 @@ async def help_cmd(u,c):
         "`/doji us` — Scan doji US stocks\n"
         "🤖 Auto alert doji tiap 1 jam saat IDX buka\n\n"
         "🌊 *Volume Momentum (BARU):*\n"
-        "`/volmom` — Scan IDX volume naik konsisten 30M→1H→4H→Daily\n"
+        "`/volmom` — Scan IDX volume naik konsisten 5M→15M→30M→1H\n"
         "`/volmom us` — Scan US stocks volume momentum\n"
         "🤖 Auto alert volmom tiap 30 menit saat IDX buka\n\n"
         "*Auto Scan:*\n"
@@ -937,31 +1290,39 @@ async def tp_cmd(u,c):
 
 async def chart_cmd(u,c):
     args=c.args
-    if not args: await u.message.reply_text("⚠️ Format: `/chart BBCA` atau `/chart PLTR D`",parse_mode="Markdown"); return
+    if not args: await u.message.reply_text("Format: `/chart BBCA` atau `/chart PLTR D`",parse_mode="Markdown"); return
     code=args[0].upper().replace(".JK",""); tf=args[1].upper() if len(args)>1 else "D"
-    m=await u.message.reply_text(f"📊 Membuat chart *{code}* TF:{tf}...",parse_mode="Markdown")
+    m=await u.message.reply_text(f"Membuat chart *{code}* TF:{tf}...",parse_mode="Markdown")
     buf,err=generate_chart(code,tf)
-    if err: await m.edit_text(f"❌ Error: {err}"); return
+    if err: await m.edit_text(f"Error: {err}"); return
     await m.delete()
     r=get_signal(code,tf)
     sig_txt=r['sigs'][0].split('-')[0].strip() if r.get('sigs') else 'No Signal'
-    vspike="🌊 VOL SPIKE!" if r.get('vr',0)>=2 else ""
-    liq_tag=" | ⚠️LOW LIQ" if not r.get("liquid",True) else ""
+    vspike="VOL SPIKE!" if r.get('vr',0)>=2 else ""
+    liq_tag=" | LOW LIQ" if not r.get("liquid",True) else ""
     is_idr=r.get("ticker","").endswith(".JK")
     price_str=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+    price_fmt=lambda p: f"Rp {p:,.0f}" if is_idr else f"${p:,.2f}"
     ts = calculate_tp_sl(r)
-    caption=(f"📊 *{r['ticker']}* | TF:`{tf}` | `{price_str}` `{r['chg']:+.2f}%`\n"
-             f"📈 {r['trend']} | Score:`{r['score']}/8` | {sig_txt} {vspike}{liq_tag}\n"
+    pat_text = ""
+    try:
+        if "df" in r:
+            pats = detect_all_patterns(r["df"])
+            pat_text = fmt_patterns_text(pats, price_fmt)
+            if pat_text: pat_text = f"\n{pat_text}\n"
+    except: pass
+    caption=(f"*{r['ticker']}* | TF:`{tf}` | `{price_str}` `{r['chg']:+.2f}%`\n"
+             f"{r['trend']} | Score:`{r['score']}/8` | {sig_txt} {vspike}{liq_tag}\n"
              f"EMA9:`{r['e9']:,.2f}` MA20:`{r['e20']:,.2f}` MA50:`{r['e50']:,.2f}`\n"
-             f"RSI:`{r['rsi']:.1f}` MACD:`{r['macd']:.1f}` STOCH:`{r['stoch']:.1f}`\n"
-             f"━━━━━━━━━━━━━━━━\n"
-             f"🎯 TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+             f"RSI:`{r['rsi']:.1f}` MACD:`{r['macd']:.1f}` STOCH:`{r['stoch']:.1f}`"
+             f"{pat_text}\n"
+             f"TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
              f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%) "
              f"TP3:`{ts['tp3_str']}`({ts['tp3_pct']:+.1f}%)\n"
-             f"🛡 SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
+             f"SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
              f"SL2:`{ts['sl2_str']}`({ts['sl2_pct']:+.1f}%) "
              f"SL3:`{ts['sl3_str']}`({ts['sl3_pct']:+.1f}%)\n"
-             f"⚖️ R/R:`{ts['rr']}x` | ⏱ {fmt_now()}")
+             f"R/R:`{ts['rr']}x` | {fmt_now()}")
     await u.message.reply_photo(photo=buf,caption=caption,parse_mode="Markdown")
 
 # ══ SCREENER ══ (pakai parallel scan)
@@ -1053,8 +1414,8 @@ async def doji_cmd(u,c):
 
 
 # ══ VOLUME MOMENTUM SCREENER ══
-# Deteksi saham dengan volume naik KONSISTEN di multi-TF: 30M → 1H → 4H → Daily
-# TF 5M dan 15M dihapus — terlalu noise, tidak masif
+# Deteksi saham dengan volume naik KONSISTEN di multi-TF: 5M → 15M → 30M → 1H
+# Logika: volume rata-rata TF kecil harus lebih tinggi dari TF besar = momentum accumulation
 
 def get_vol_ratio(ticker, interval, period):
     """Ambil volume ratio (last vol / avg vol) untuk satu TF"""
@@ -1075,62 +1436,70 @@ def get_vol_ratio(ticker, interval, period):
 def detect_volume_momentum(code):
     """
     Cek apakah volume saham naik terus dari TF pendek ke panjang.
-    TF: 30M → 1H → 4H → Daily (lebih masif, tidak noise)
-    Kriteria LULUS: minimal 3 dari 4 TF harus VR >= 1.5
+    Kriteria LULUS: minimal 3 dari 4 TF harus VR >= 1.5, dan trend VR naik.
+    Return dict dengan detail atau None kalau tidak memenuhi.
     """
     ticker = get_ticker(code)
     tfs = [
+        ("5M",  "5m",  "5d"),
+        ("15M", "15m", "5d"),
         ("30M", "30m", "10d"),
         ("1H",  "60m", "60d"),
-        ("4H",  "1h",  "60d"),   # yfinance tidak punya 4h, pakai 1h lalu resample
-        ("D",   "1d",  "120d"),
     ]
     vr_data = {}
     for tf_name, interval, period in tfs:
         res = get_vol_ratio(ticker, interval, period)
         if res: vr_data[tf_name] = res
 
-    if len(vr_data) < 3: return None
+    if len(vr_data) < 3: return None  # data kurang, skip
 
-    vr_vals = [vr_data[tf]["vr"] for tf in ["30M","1H","4H","D"] if tf in vr_data]
+    vr_vals = [vr_data[tf]["vr"] for tf in ["5M","15M","30M","1H"] if tf in vr_data]
     if not vr_vals: return None
 
+    # Hitung skor momentum
+    # Syarat 1: minimal 3 TF dengan VR >= 1.5
     strong_tfs = sum(1 for v in vr_vals if v >= 1.5)
     if strong_tfs < 3: return None
 
+    # Syarat 2: volume makin tinggi di TF lebih kecil (akumulasi intraday)
+    # VR 5M harus >= VR 1H → artinya volume sekarang lebih "hot" dari rata-rata
+    vr_5m  = vr_data.get("5M",  {}).get("vr", 0)
+    vr_15m = vr_data.get("15M", {}).get("vr", 0)
     vr_30m = vr_data.get("30M", {}).get("vr", 0)
     vr_1h  = vr_data.get("1H",  {}).get("vr", 0)
-    vr_4h  = vr_data.get("4H",  {}).get("vr", 0)
-    vr_d   = vr_data.get("D",   {}).get("vr", 0)
 
+    # Momentum score: lebih tinggi = lebih kuat
     momentum_score = 0
-    if vr_30m >= 2.0: momentum_score += 3
-    elif vr_30m >= 1.5: momentum_score += 2
-    if vr_1h >= 2.0:  momentum_score += 2
-    elif vr_1h >= 1.5: momentum_score += 1
-    if vr_4h >= 1.5:  momentum_score += 1
-    if vr_d >= 1.5:   momentum_score += 1
-    if vr_30m > vr_d: momentum_score += 1  # fresh surge
+    if vr_5m >= 2.0:  momentum_score += 3
+    elif vr_5m >= 1.5: momentum_score += 2
+    if vr_15m >= 2.0: momentum_score += 2
+    elif vr_15m >= 1.5: momentum_score += 1
+    if vr_30m >= 1.5: momentum_score += 1
+    if vr_1h >= 1.5:  momentum_score += 1
+    # Bonus: VR 5M > VR 1H (fresh surge)
+    if vr_5m > vr_1h: momentum_score += 1
 
     if momentum_score < 4: return None
 
-    ref = vr_data.get("30M") or vr_data.get("1H") or {}
+    # Ambil data harga dari TF 5M atau 15M
+    ref = vr_data.get("5M") or vr_data.get("15M") or {}
     price = ref.get("price", 0)
     chg   = ref.get("chg", 0)
 
+    # Cek likuiditas (IDX only)
     is_idx = ticker.endswith(".JK")
-    avg_vol_daily = vr_data.get("D", {}).get("avg_vol", 0)
-    liquid = is_liquid_stock(avg_vol_daily, price) if is_idx else True
+    avg_vol_daily = vr_data.get("1H", {}).get("avg_vol", 0)
+    liquid = is_liquid_stock(avg_vol_daily * 6, price) if is_idx else True  # estimasi daily vol
 
     return {
         "code":    code,
         "ticker":  ticker,
         "price":   price,
         "chg":     chg,
+        "vr_5m":   vr_5m,
+        "vr_15m":  vr_15m,
         "vr_30m":  vr_30m,
         "vr_1h":   vr_1h,
-        "vr_4h":   vr_4h,
-        "vr_d":    vr_d,
         "mom_score": momentum_score,
         "liquid":  liquid,
         "strong_tfs": strong_tfs,
@@ -1151,11 +1520,12 @@ def volmom_screener(stock_list, max_workers=10):
     return results
 
 def fmt_volmom_msg(results, market_name="IDX"):
+    """Format pesan Telegram untuk volume momentum scan"""
     now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
     lines = [
         f"🌊 *VOLUME MOMENTUM SCAN — {market_name}*",
         f"🕐 {now_str}",
-        f"📌 Volume naik konsisten: 30M → 1H → 4H → Daily",
+        f"📌 Volume naik konsisten: 5M → 15M → 30M → 1H",
         "━━━━━━━━━━━━━━━━━━━━",
     ]
     if not results:
@@ -1166,6 +1536,7 @@ def fmt_volmom_msg(results, market_name="IDX"):
             liq    = "" if r["liquid"] else " ⚠️ILL"
             is_idr = r["ticker"].endswith(".JK")
             px     = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+            # Bar visual untuk setiap TF
             def bar(v):
                 if v >= 3.0: return "🔴🔴🔴"
                 if v >= 2.0: return "🟠🟠"
@@ -1173,10 +1544,10 @@ def fmt_volmom_msg(results, market_name="IDX"):
                 return "⬜"
             lines.append(
                 f"{em} *{r['code']}* `{px}` {r['chg']:+.2f}%{liq}\n"
-                f"  30M:{bar(r['vr_30m'])}`{r['vr_30m']:.1f}x` "
+                f"  5M:{bar(r['vr_5m'])}`{r['vr_5m']:.1f}x` "
+                f"15M:{bar(r['vr_15m'])}`{r['vr_15m']:.1f}x` "
+                f"30M:{bar(r['vr_30m'])}`{r['vr_30m']:.1f}x` "
                 f"1H:{bar(r['vr_1h'])}`{r['vr_1h']:.1f}x` "
-                f"4H:{bar(r['vr_4h'])}`{r['vr_4h']:.1f}x` "
-                f"D:{bar(r['vr_d'])}`{r['vr_d']:.1f}x` "
                 f"| Score:`{r['mom_score']}`"
             )
     lines += [
@@ -1195,22 +1566,23 @@ async def volmom_cmd(u, c):
     flag   = "🇺🇸 US" if market == "us" else "🇮🇩 IDX"
     m = await u.message.reply_text(
         f"🌊 Scanning *{flag}* volume momentum di 4 TF...\n"
-        f"_(30M, 1H, 4H, Daily — harap tunggu ~30 detik)_",
+        f"_(5M, 15M, 30M, 1H — harap tunggu ~30 detik)_",
         parse_mode="Markdown")
     results = await asyncio.get_event_loop().run_in_executor(
         None, volmom_screener, stocks)
     msg = fmt_volmom_msg(results, flag)
     await m.edit_text(msg, parse_mode="Markdown")
+    # Kirim chart saham teratas kalau ada
     if results:
         best = results[0]
-        buf, _ = generate_chart(best["code"], "1H")
+        buf, _ = generate_chart(best["code"], "5M")
         if buf:
             is_idr = best["ticker"].endswith(".JK")
             px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
             await u.message.reply_photo(photo=buf,
                 caption=(f"🌊 TOP VOLMOM: *{best['code']}* | `{px}` {best['chg']:+.2f}%\n"
-                         f"30M:`{best['vr_30m']:.1f}x` 1H:`{best['vr_1h']:.1f}x` "
-                         f"4H:`{best['vr_4h']:.1f}x` D:`{best['vr_d']:.1f}x`\n"
+                         f"5M:`{best['vr_5m']:.1f}x` 15M:`{best['vr_15m']:.1f}x` "
+                         f"30M:`{best['vr_30m']:.1f}x` 1H:`{best['vr_1h']:.1f}x`\n"
                          f"MomScore:`{best['mom_score']}` | {fmt_now()}"),
                 parse_mode="Markdown")
 
@@ -1229,14 +1601,14 @@ async def volmom_auto_scan(context):
     for uid in auto_users:
         try:
             await bot.send_message(int(uid), msg, parse_mode="Markdown")
-            buf, _ = generate_chart(hot[0]["code"], "1H")
+            buf, _ = generate_chart(hot[0]["code"], "5M")
             if buf:
                 is_idr = hot[0]["ticker"].endswith(".JK")
                 px = f"Rp {hot[0]['price']:,.0f}" if is_idr else f"${hot[0]['price']:,.2f}"
                 await bot.send_photo(int(uid), photo=buf,
                     caption=(f"🌊 VOLMOM AUTO: *{hot[0]['code']}* | `{px}`\n"
-                             f"30M:`{hot[0]['vr_30m']:.1f}x` 1H:`{hot[0]['vr_1h']:.1f}x` "
-                             f"4H:`{hot[0]['vr_4h']:.1f}x` D:`{hot[0]['vr_d']:.1f}x`\n"
+                             f"5M:`{hot[0]['vr_5m']:.1f}x` 15M:`{hot[0]['vr_15m']:.1f}x` "
+                             f"30M:`{hot[0]['vr_30m']:.1f}x` 1H:`{hot[0]['vr_1h']:.1f}x`\n"
                              f"MomScore:`{hot[0]['mom_score']}` | {fmt_now()}"),
                     parse_mode="Markdown")
         except Exception as e:
@@ -1313,211 +1685,133 @@ async def trend_cmd(u,c):
 # ══ BACKGROUND JOBS ══
 
 async def volume_spike_scan_idx(context):
-    """
-    Volume spike IDX — scan di TF masif saja: 30M, 1H, 4H, Daily.
-    5M dan 15M dihapus karena terlalu noise dan sering false signal.
-    Alert hanya dikirim kalau spike terdeteksi di minimal 2 TF.
-    """
+    # ✅ FIX: is_idx_market_open() sudah include weekday check, tapi eksplisit lebih aman
     if not is_weekday(): return
     if not is_idx_market_open(): return
     if not auto_users: return
-    bot = context.bot
-
-    # TF yang dipakai: 30M, 1H, 4H, Daily
-    tf_list = ["30M", "1H", "4H", "D"]
-
-    def scan_multi_tf(code):
-        """Scan volume spike di semua TF, return kalau ada minimal di 2 TF"""
-        spike_tfs = []
-        result_ref = None
-        for tf in tf_list:
-            spikes = parallel_scan([code], tf, 2.0)  # threshold 2x untuk TF besar
-            if spikes:
-                spike_tfs.append(tf)
-                if result_ref is None:
-                    result_ref = spikes[0]
-        if len(spike_tfs) >= 2 and result_ref:
-            result_ref["confirmed_tfs"] = spike_tfs
-            return result_ref
-        return None
-
-    loop = asyncio.get_event_loop()
-    results = await loop.run_in_executor(
-        None, lambda: [scan_multi_tf(c) for c in IDX_STOCKS])
-    spikes = [r for r in results if r]
-    if not spikes: return
-
-    # Sort by volume ratio
-    spikes.sort(key=lambda x: x["vr"], reverse=True)
-
-    for uid in auto_users:
-        try:
-            now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
-            lines = [
-                "⚡ *🇮🇩 IDX VOLUME SPIKE — MULTI TF*",
-                "📌 Konfirmasi minimal 2 TF: 30M/1H/4H/Daily",
-                "━━━━━━━━━━━━━━━━━━━━"
-            ]
-            buy_s  = [s for s in spikes if s["direction"] == "BUY"]
-            sell_s = [s for s in spikes if s["direction"] == "SELL"]
-            if buy_s:
-                lines.append("🟢 *BUY VOLUME SPIKE:*")
-                for s in buy_s[:5]:
-                    liq = " ⚠️ILL" if not s.get("liquid", True) else ""
-                    tfs = "+".join(s.get("confirmed_tfs", []))
-                    lines.append(
-                        f"  ▲ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% "
-                        f"Vol:`{s['vr']:.1f}x` TF:`{tfs}`{liq}"
-                    )
-            if sell_s:
-                lines.append("🔴 *SELL VOLUME SPIKE:*")
-                for s in sell_s[:5]:
-                    liq = " ⚠️ILL" if not s.get("liquid", True) else ""
-                    tfs = "+".join(s.get("confirmed_tfs", []))
-                    lines.append(
-                        f"  ▼ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% "
-                        f"Vol:`{s['vr']:.1f}x` TF:`{tfs}`{liq}"
-                    )
-            lines += ["━━━━━━━━━━━━━━━━━━━━", f"⏱ {now_str}"]
-            await bot.send_message(int(uid), "\n".join(lines), parse_mode="Markdown")
-            # Chart dari TF terpanjang yang terdeteksi
-            top = [s for s in spikes if s.get("liquid", True)]
-            top = top[0] if top else spikes[0]
-            chart_tf = top.get("confirmed_tfs", ["1H"])[-1]  # TF terpanjang
-            buf, _ = generate_chart(top["code"], chart_tf)
-            if buf:
-                dir_txt = "🟢 BUY" if top["direction"] == "BUY" else "🔴 SELL"
-                tfs = "+".join(top.get("confirmed_tfs", []))
-                await bot.send_photo(int(uid), photo=buf,
-                    caption=(f"📊 {top['code']} | {dir_txt} SPIKE | "
-                             f"Vol:{top['vr']:.1f}x | TF:{tfs} | {now_str}"))
-        except Exception as e:
-            log.error(f"IDX spike alert error uid {uid}: {e}")
-
-async def volume_spike_scan_us(context):
-    # Skip weekend — US market tutup Sabtu/Minggu
-    if not is_weekday(): return
-    if not is_us_market_open(): return
-    if not auto_users: return
-    bot = context.bot
-    # Scan pakai 1H (TF masif, bukan 5M yang noise)
+    bot=context.bot
+    # ✅ FIX: Parallel scan semua IDX stocks
     spikes = await asyncio.get_event_loop().run_in_executor(
-        None, parallel_scan, US_STOCKS, "1H", 2.0)
+        None, parallel_scan, IDX_STOCKS, "5M", 2.5)
     if not spikes: return
     for uid in auto_users:
         try:
-            now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
-            lines=["⚡ *🇺🇸 US VOLUME SPIKE ALERT!*",
-                   "📌 TF: 1H (threshold 2x avg)",
-                   "━━━━━━━━━━━━━━━━━━━━"]
+            lines=["⚡ *🇮🇩 IDX VOLUME SPIKE ALERT!*","━━━━━━━━━━━━━━━━━━━━"]
             buy_spikes=[s for s in spikes if s["direction"]=="BUY"]
             sell_spikes=[s for s in spikes if s["direction"]=="SELL"]
             if buy_spikes:
                 lines.append("🟢 *BUY VOLUME SPIKE:*")
                 for s in buy_spikes[:5]:
-                    lines.append(f"  ▲ *{s['code']}* `${s['price']:,.2f}` {s['chg']:+.2f}% Vol:`{s['vr']:.1f}x`")
+                    liq=" ⚠️ILLIQUID" if not s.get("liquid",True) else ""
+                    lines.append(f"  ▲ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x{liq}")
             if sell_spikes:
                 lines.append("🔴 *SELL VOLUME SPIKE:*")
                 for s in sell_spikes[:5]:
-                    lines.append(f"  ▼ *{s['code']}* `${s['price']:,.2f}` {s['chg']:+.2f}% Vol:`{s['vr']:.1f}x`")
-            lines+=["━━━━━━━━━━━━━━━━━━━━",f"⏱ {now_str}"]
+                    liq=" ⚠️ILLIQUID" if not s.get("liquid",True) else ""
+                    lines.append(f"  ▼ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x{liq}")
+            lines+=["━━━━━━━━━━━━━━━━━━━━",f"⏱ {fmt_now()}"]
+            await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
+            liquid_spikes=[s for s in spikes if s.get("liquid",True)]
+            top=liquid_spikes[0] if liquid_spikes else spikes[0]
+            buf,_=generate_chart(top["code"],"5M")
+            if buf:
+                dir_txt="🟢 BUY SPIKE" if top["direction"]=="BUY" else "🔴 SELL SPIKE"
+                liq_tag=" | ⚠️LOW LIQ" if not top.get("liquid",True) else ""
+                await bot.send_photo(int(uid),photo=buf,
+                    caption=f"📊 {top['code']} | {dir_txt} | Vol:{top['vr']:.1f}x avg{liq_tag} | {fmt_now()}")
+        except Exception as e: log.error(f"IDX spike alert error uid {uid}: {e}")
+
+async def volume_spike_scan_us(context):
+    # ✅ FIX: Skip weekend — US market juga tutup Sabtu/Minggu
+    if not is_weekday(): return
+    if not is_us_market_open(): return
+    if not auto_users: return
+    bot=context.bot
+    # ✅ FIX: Scan SEMUA US stocks (bukan [:30])
+    spikes = await asyncio.get_event_loop().run_in_executor(
+        None, parallel_scan, US_STOCKS, "5M", 2.5)
+    if not spikes: return
+    for uid in auto_users:
+        try:
+            lines=["⚡ *🇺🇸 US VOLUME SPIKE ALERT!*","━━━━━━━━━━━━━━━━━━━━"]
+            buy_spikes=[s for s in spikes if s["direction"]=="BUY"]
+            sell_spikes=[s for s in spikes if s["direction"]=="SELL"]
+            if buy_spikes:
+                lines.append("🟢 *BUY VOLUME SPIKE:*")
+                for s in buy_spikes[:5]:
+                    lines.append(f"  ▲ *{s['code']}* `${s['price']:,.2f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x")
+            if sell_spikes:
+                lines.append("🔴 *SELL VOLUME SPIKE:*")
+                for s in sell_spikes[:5]:
+                    lines.append(f"  ▼ *{s['code']}* `${s['price']:,.2f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x")
+            lines+=["━━━━━━━━━━━━━━━━━━━━",f"⏱ {fmt_now()}"]
             await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
             if spikes:
                 top=spikes[0]
-                buf,_=generate_chart(top["code"],"1H")
+                buf,_=generate_chart(top["code"],"5M")
                 if buf:
                     dir_txt="🟢 BUY SPIKE" if top["direction"]=="BUY" else "🔴 SELL SPIKE"
                     await bot.send_photo(int(uid),photo=buf,
-                        caption=f"📊 {top['code']} | {dir_txt} | Vol:{top['vr']:.1f}x | 1H | {now_str}")
+                        caption=f"📊 {top['code']} | {dir_txt} | Vol:{top['vr']:.1f}x avg | {fmt_now()}")
         except Exception as e: log.error(f"US spike alert error uid {uid}: {e}")
 
 async def flip_pixel_scan(context):
-    """
-    Flip scan: deteksi saham BEARISH ➜ BULLISH saja.
-    TF yang dipakai: 4H dan Daily — cukup masif, tidak noise seperti 5M/15M.
-    Konfirmasi: saham harus flip di KEDUA TF (4H dan D) = sinyal lebih kuat.
-    """
     if not is_weekday(): return
     if not auto_users: return
-    if not is_idx_market_open(): return  # hanya IDX jam buka
-    bot = context.bot
+    if not (is_idx_market_open() or is_us_market_open()): return
+    bot=context.bot
+    all_stocks=[(c,"D") for c in IDX_STOCKS]+[(c,"D") for c in US_STOCKS[:20]]
+    flips_bull=[]; flips_bear=[]
 
-    # Scan di 2 TF saja: 4H dan Daily
-    tfs_to_check = ["4H", "D"]
-    # state key: "ENRG_4H", "ENRG_D"
-    flips_bull = []  # (code, r_daily, tf_confirmed)
-
-    def check_flip_multi(code):
-        """Cek flip bearish→bullish di 4H DAN Daily"""
-        confirmed_tfs = []
-        r_daily = None
-        for tf in tfs_to_check:
-            key = f"{code}_{tf}"
-            new_state = get_trend_state(code, tf)
-            if new_state is None: continue
-            old_state = flip_state_db.get(key, "neutral")
-            flip_state_db[key] = new_state
-            # Hanya bearish/neutral ➜ bullish yang kita alert
-            if old_state in ("bear", "neutral") and new_state == "bull":
-                confirmed_tfs.append(tf)
-        # Ambil data signal dari Daily untuk info harga
-        if confirmed_tfs:
-            r_daily = get_signal(code, "D")
-            if "error" in r_daily: return None
-            if not r_daily.get("liquid", True): return None  # skip illiquid
-            return (code, r_daily, confirmed_tfs)
+    def check_flip(code_tf):
+        code,tf=code_tf
+        new_state=get_trend_state(code,tf)
+        if new_state is None: return None
+        old_state=flip_state_db.get(code,"neutral")
+        flip_state_db[code]=new_state
+        if old_state in ("bear","neutral") and new_state=="bull":
+            r=get_signal(code,tf)
+            if "error" not in r and r.get("liquid",True): return ("bull",code,r)
+        elif old_state in ("bull","neutral") and new_state=="bear":
+            r=get_signal(code,tf)
+            if "error" not in r: return ("bear",code,r)
         return None
 
-    loop = asyncio.get_event_loop()
-    all_codes = IDX_STOCKS + US_STOCKS[:20]
-    results = await loop.run_in_executor(
-        None, lambda: [check_flip_multi(c) for c in all_codes])
-
+    loop=asyncio.get_event_loop()
+    results=await loop.run_in_executor(None,lambda:[check_flip(ct) for ct in all_stocks])
     for res in results:
-        if res: flips_bull.append(res)
-
-    save_json(FLIP_FILE, flip_state_db)
-    if not flips_bull: return
-
-    # Sort: prioritaskan yang konfirmasi di kedua TF (4H+D)
-    flips_bull.sort(key=lambda x: len(x[2]), reverse=True)
-
-    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+        if res is None: continue
+        direction,code,r=res
+        if direction=="bull": flips_bull.append((code,r))
+        else: flips_bear.append((code,r))
+    save_json(FLIP_FILE,flip_state_db)
+    if not flips_bull and not flips_bear: return
+    now_str=datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
     for uid in auto_users:
         try:
-            lines = [
-                "🚀 *PIXEL FLIP — BEARISH ➜ BULLISH*",
-                f"🕐 {now_str}",
-                "📌 Konfirmasi: TF 4H + Daily",
-                "━━━━━━━━━━━━━━━━━━━━"
-            ]
-            for code, r, tfs in flips_bull[:8]:
-                is_idr = r["ticker"].endswith(".JK")
-                px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
-                chg = f"+{r['chg']:.2f}%" if r['chg'] >= 0 else f"{r['chg']:.2f}%"
-                sig = r['sigs'][0].split('-')[0].strip() if r['sigs'] else '—'
-                # Badge TF konfirmasi
-                tf_badge = "🔥4H+D" if len(tfs) == 2 else f"✅{tfs[0]}"
-                lines.append(
-                    f"{tf_badge} *{code}* `{px}` {chg} | Score:`{r['score']}/8` | {sig}"
-                )
-            lines += [
-                "━━━━━━━━━━━━━━━━━━━━",
-                "📊 EMA: Price > EMA9 > MA20 > MA50",
-                "💡 🔥 = konfirmasi 4H+Daily (lebih kuat)"
-            ]
-            await bot.send_message(int(uid), "\n".join(lines), parse_mode="Markdown")
-            # Kirim chart Daily saham teratas
-            top_code = flips_bull[0][0]
-            buf, _ = generate_chart(top_code, "D")
-            if buf:
-                tfs_str = "+".join(flips_bull[0][2])
-                await bot.send_photo(int(uid), photo=buf,
-                    caption=(f"🚀 FLIP BULLISH: *{top_code}* | TF:{tfs_str} | "
-                             f"Score:{flips_bull[0][1]['score']}/8 | {now_str}"),
-                    parse_mode="Markdown")
-        except Exception as e:
-            log.error(f"flip alert uid {uid}: {e}")
+            if flips_bull:
+                lines=["🚀 *PIXEL FLIP — BEARISH ➜ BULLISH*",f"🕐 {now_str}","━━━━━━━━━━━━━━━━━━━━"]
+                for code,r in flips_bull[:6]:
+                    is_idr=code.endswith(".JK")
+                    px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                    chg=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
+                    sig=r['sigs'][0].split('-')[0].strip() if r['sigs'] else 'No Signal'
+                    lines.append(f"✅ *{code}* `{px}` {chg} | Score:`{r['score']}/8` | {sig}")
+                lines+=["━━━━━━━━━━━━━━━━━━━━","📊 EMA: Price > EMA9 > MA20 > MA50","💡 Konfirmasi entry!"]
+                await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
+                buf,_=generate_chart(flips_bull[0][0],"D")
+                if buf: await bot.send_photo(int(uid),photo=buf,
+                    caption=f"🚀 FLIP BULLISH: {flips_bull[0][0]} | Score:{flips_bull[0][1]['score']}/8 | {now_str}")
+            if flips_bear:
+                lines=["⚠️ *PIXEL FLIP — BULLISH ➜ BEARISH*",f"🕐 {now_str}","━━━━━━━━━━━━━━━━━━━━"]
+                for code,r in flips_bear[:6]:
+                    is_idr=code.endswith(".JK")
+                    px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                    chg=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
+                    lines.append(f"🔴 *{code}* `{px}` {chg} | Score:`{r['score']}/8` | CUT/AVOID")
+                lines+=["━━━━━━━━━━━━━━━━━━━━","📊 EMA: Price < EMA9 < MA20 < MA50","⚡ Waspada distribusi!"]
+                await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
+        except Exception as e: log.error(f"flip alert uid {uid}: {e}")
 
 async def doji_auto_scan(context):
     """Auto scan doji bullish reversal IDX tiap 1 jam saat market buka"""
