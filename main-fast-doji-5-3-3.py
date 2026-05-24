@@ -639,10 +639,95 @@ def detect_cup_and_handle(closes, highs, lows, n=60):
     except:
         return None
 
+def detect_head_and_shoulders(highs, closes, n=60):
+    """
+    Deteksi Head & Shoulders (bearish reversal) dan
+    Inverse Head & Shoulders (bullish reversal).
+    Return: dict {type, left_x, head_x, right_x, neckline, confirmed} atau None
+    """
+    try:
+        h = highs[-n:]; c = closes[-n:]
+
+        # Cari pivot high (H&S) dan pivot low (IH&S)
+        ph_idx = [i for i in range(2, len(h)-2)
+                  if h[i] >= h[i-1] and h[i] >= h[i-2] and h[i] >= h[i+1] and h[i] >= h[i+2]]
+        pl_idx = [i for i in range(2, len(c)-2)
+                  if c[i] <= c[i-1] and c[i] <= c[i-2] and c[i] <= c[i+1] and c[i] <= c[i+2]]
+
+        # ── HEAD & SHOULDERS (bearish) ──
+        best_hs = None
+        if len(ph_idx) >= 3:
+            for i in range(len(ph_idx)-2):
+                ls_x = ph_idx[i]; hd_x = ph_idx[i+1]; rs_x = ph_idx[i+2]
+                ls_y = h[ls_x]; hd_y = h[hd_x]; rs_y = h[rs_x]
+
+                # Head harus lebih tinggi dari kedua shoulder
+                if not (hd_y > ls_y and hd_y > rs_y): continue
+                # Kedua shoulder harus hampir sama (max 5% beda)
+                if abs(ls_y - rs_y) / max(ls_y, rs_y) > 0.05: continue
+                # Head harus setidaknya 3% lebih tinggi dari shoulder
+                if (hd_y - max(ls_y, rs_y)) / hd_y < 0.03: continue
+
+                # Neckline: rata-rata lembah antara L-H dan H-R
+                valley1 = float(min(c[ls_x:hd_x+1]))
+                valley2 = float(min(c[hd_x:rs_x+1]))
+                neckline = (valley1 + valley2) / 2
+
+                current = float(c[-1])
+                confirmed = current <= neckline * 1.01  # break below neckline
+
+                if best_hs is None or hd_y > best_hs["head_y"]:
+                    best_hs = {
+                        "type": "Head & Shoulders 🔻",
+                        "signal": "BEARISH REVERSAL",
+                        "left_x": ls_x, "head_x": hd_x, "right_x": rs_x,
+                        "left_y": ls_y, "head_y": hd_y, "right_y": rs_y,
+                        "neckline": neckline, "confirmed": confirmed,
+                        "is_inverse": False, "n_used": n
+                    }
+
+        # ── INVERSE HEAD & SHOULDERS (bullish) ──
+        best_ihs = None
+        if len(pl_idx) >= 3:
+            for i in range(len(pl_idx)-2):
+                ls_x = pl_idx[i]; hd_x = pl_idx[i+1]; rs_x = pl_idx[i+2]
+                ls_y = c[ls_x]; hd_y = c[hd_x]; rs_y = c[rs_x]
+
+                # Head harus lebih rendah dari kedua shoulder
+                if not (hd_y < ls_y and hd_y < rs_y): continue
+                # Kedua shoulder hampir sama (max 5%)
+                if abs(ls_y - rs_y) / max(ls_y, rs_y) > 0.05: continue
+                # Head harus setidaknya 3% lebih rendah
+                if (min(ls_y, rs_y) - hd_y) / min(ls_y, rs_y) < 0.03: continue
+
+                peak1 = float(max(h[ls_x:hd_x+1]))
+                peak2 = float(max(h[hd_x:rs_x+1]))
+                neckline = (peak1 + peak2) / 2
+
+                current = float(c[-1])
+                confirmed = current >= neckline * 0.99  # break above neckline
+
+                if best_ihs is None or hd_y < best_ihs["head_y"]:
+                    best_ihs = {
+                        "type": "Inv. Head & Shoulders 🔺",
+                        "signal": "BULLISH REVERSAL",
+                        "left_x": ls_x, "head_x": hd_x, "right_x": rs_x,
+                        "left_y": ls_y, "head_y": hd_y, "right_y": rs_y,
+                        "neckline": neckline, "confirmed": confirmed,
+                        "is_inverse": True, "n_used": n
+                    }
+
+        # Return yang paling baru (right shoulder paling kanan)
+        candidates = [x for x in [best_hs, best_ihs] if x is not None]
+        if not candidates: return None
+        return max(candidates, key=lambda x: x["right_x"])
+    except:
+        return None
+
 def detect_all_patterns(df, n=60):
     """
     Jalankan semua pattern detector sekaligus.
-    Return dict: {trendlines, triangle, double_bottom, cup_handle}
+    Return dict: {trendlines, triangle, double_bottom, cup_handle, hs}
     """
     close = df["Close"].squeeze().values[-n:]
     high  = df["High"].squeeze().values[-n:]
@@ -657,6 +742,8 @@ def detect_all_patterns(df, n=60):
     except: result["double_bottom"] = None
     try: result["cup_handle"]    = detect_cup_and_handle(close, high, low, n)
     except: result["cup_handle"] = None
+    try: result["hs"]            = detect_head_and_shoulders(high, close, n)
+    except: result["hs"]         = None
 
     return result
 
@@ -677,7 +764,134 @@ def fmt_patterns_text(patterns, price_fmt):
         status = "✅ BREAKOUT" if ch["confirmed"] else "⏳ FORMING"
         lines.append(f"☕ *Cup & Handle* {status} | BO:`{price_fmt(ch['breakout_level'])}` Depth:`{ch['cup_depth_pct']:.1f}%`")
 
+    hs = patterns.get("hs")
+    if hs:
+        status = "✅ CONFIRMED" if hs["confirmed"] else "⏳ FORMING"
+        lines.append(f"{'🔻' if not hs['is_inverse'] else '🔺'} *{hs['type']}* {status} | Neck:`{price_fmt(hs['neckline'])}`")
+
     return "\n".join(lines) if lines else ""
+
+def pattern_scan_one(code, tf="D"):
+    """Scan satu saham untuk semua pattern. Return dict atau None."""
+    try:
+        r = get_signal(code, tf)
+        if "error" in r: return None
+        pats = detect_all_patterns(r["df"])
+        found = []
+        if pats.get("triangle"):      found.append(("triangle",    pats["triangle"]))
+        if pats.get("double_bottom"): found.append(("double_bottom", pats["double_bottom"]))
+        if pats.get("cup_handle"):    found.append(("cup_handle",  pats["cup_handle"]))
+        if pats.get("hs"):            found.append(("hs",          pats["hs"]))
+        if not found: return None
+        is_idr = r["ticker"].endswith(".JK")
+        return {
+            "code": code, "ticker": r["ticker"], "price": r["price"],
+            "chg": r["chg"], "trend": r["trend"], "score": r["score"],
+            "patterns": found, "is_idr": is_idr,
+            "liquid": r.get("liquid", True)
+        }
+    except:
+        return None
+
+def parallel_pattern_scan(stock_list, tf="D", max_workers=10):
+    """Scan semua saham secara paralel untuk pattern."""
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(pattern_scan_one, code, tf): code for code in stock_list}
+        for future in as_completed(futures):
+            try:
+                res = future.result(timeout=15)
+                if res: results.append(res)
+            except Exception as e:
+                log.warning(f"Pattern scan error {futures[future]}: {e}")
+    # Sort: confirmed dulu, lalu score tertinggi
+    def sort_key(x):
+        confirmed = any(
+            (p[1].get("confirmed", False) if isinstance(p[1], dict) else False)
+            for p in x["patterns"]
+        )
+        return (0 if confirmed else 1, -x["score"])
+    results.sort(key=sort_key)
+    return results
+
+# ── BREAKOUT ALERT STATE ──
+BREAKOUT_FILE = "/tmp/breakout_state.json"
+breakout_state_db = load_json(BREAKOUT_FILE)
+
+def check_pattern_breakout(code, tf="D"):
+    """
+    Cek apakah ada pattern yang baru saja confirmed (breakout).
+    Return list of alert dicts, atau [].
+    """
+    alerts = []
+    try:
+        r = get_signal(code, tf)
+        if "error" in r: return []
+        pats = detect_all_patterns(r["df"])
+        is_idr = r["ticker"].endswith(".JK")
+        price_fmt = lambda p: f"Rp {p:,.0f}" if is_idr else f"${p:,.2f}"
+
+        db = pats.get("double_bottom")
+        if db and db["confirmed"]:
+            key = f"{code}_DB"
+            if breakout_state_db.get(key) != "confirmed":
+                breakout_state_db[key] = "confirmed"
+                save_json(BREAKOUT_FILE, breakout_state_db)
+                alerts.append({
+                    "code": code, "price": r["price"], "is_idr": is_idr,
+                    "msg": (f"🚨 *BREAKOUT ALERT!*\n"
+                            f"〰️ *Double Bottom CONFIRMED*\n"
+                            f"*{r['ticker']}* | `{price_fmt(r['price'])}` `{r['chg']:+.2f}%`\n"
+                            f"Neckline: `{price_fmt(db['neckline'])}` | Depth: `{db['depth_pct']:.1f}%`\n"
+                            f"Trend: {r['trend']} | Score: `{r['score']}/8`\n"
+                            f"⏱ {fmt_now()}")
+                })
+        elif db and not db["confirmed"]:
+            key = f"{code}_DB"
+            if key in breakout_state_db: del breakout_state_db[key]; save_json(BREAKOUT_FILE, breakout_state_db)
+
+        ch = pats.get("cup_handle")
+        if ch and ch["confirmed"]:
+            key = f"{code}_CH"
+            if breakout_state_db.get(key) != "confirmed":
+                breakout_state_db[key] = "confirmed"
+                save_json(BREAKOUT_FILE, breakout_state_db)
+                alerts.append({
+                    "code": code, "price": r["price"], "is_idr": is_idr,
+                    "msg": (f"🚨 *BREAKOUT ALERT!*\n"
+                            f"☕ *Cup & Handle BREAKOUT*\n"
+                            f"*{r['ticker']}* | `{price_fmt(r['price'])}` `{r['chg']:+.2f}%`\n"
+                            f"Breakout Level: `{price_fmt(ch['breakout_level'])}` | Depth: `{ch['cup_depth_pct']:.1f}%`\n"
+                            f"Trend: {r['trend']} | Score: `{r['score']}/8`\n"
+                            f"⏱ {fmt_now()}")
+                })
+        elif ch and not ch["confirmed"]:
+            key = f"{code}_CH"
+            if key in breakout_state_db: del breakout_state_db[key]; save_json(BREAKOUT_FILE, breakout_state_db)
+
+        hs = pats.get("hs")
+        if hs and hs["confirmed"]:
+            key = f"{code}_HS"
+            if breakout_state_db.get(key) != "confirmed":
+                breakout_state_db[key] = "confirmed"
+                save_json(BREAKOUT_FILE, breakout_state_db)
+                emoji = "🔺" if hs["is_inverse"] else "🔻"
+                alerts.append({
+                    "code": code, "price": r["price"], "is_idr": is_idr,
+                    "msg": (f"🚨 *BREAKOUT ALERT!*\n"
+                            f"{emoji} *{hs['type']} CONFIRMED*\n"
+                            f"*{r['ticker']}* | `{price_fmt(r['price'])}` `{r['chg']:+.2f}%`\n"
+                            f"Neckline: `{price_fmt(hs['neckline'])}`\n"
+                            f"Signal: {hs['signal']} | Score: `{r['score']}/8`\n"
+                            f"⏱ {fmt_now()}")
+                })
+        elif hs and not hs["confirmed"]:
+            key = f"{code}_HS"
+            if key in breakout_state_db: del breakout_state_db[key]; save_json(BREAKOUT_FILE, breakout_state_db)
+
+    except Exception as e:
+        log.warning(f"Breakout check error {code}: {e}")
+    return alerts
 
 
 # ══ CHART GENERATOR ══
@@ -918,6 +1132,35 @@ def generate_chart(code, tf="D", volume_spikes=None):
                         color="#e67e22", s=30, zorder=9, marker='o', alpha=0.9)
             ax1.scatter([ch_offset+ch["cup_bottom_x"]], [ch["cup_bottom_y"]],
                         color="#e67e22", s=40, zorder=9, marker='v', alpha=0.9)
+
+        # ── HEAD & SHOULDERS ──
+        hs = detect_head_and_shoulders(highs, closes, min(n, 60))
+        hs_offset = n - min(n, 60)
+        if hs:
+            hs_color = "#c0392b" if not hs["is_inverse"] else "#27ae60"
+            lx = hs_offset + hs["left_x"]
+            hx2 = hs_offset + hs["head_x"]
+            rx = hs_offset + hs["right_x"]
+            # Draw shoulder-head-shoulder lines
+            ax1.plot([lx, hx2, rx],
+                     [hs["left_y"], hs["head_y"], hs["right_y"]],
+                     color=hs_color, linewidth=2.0, linestyle='-', alpha=0.75, zorder=7)
+            # Neckline
+            ax1.axhline(hs["neckline"], color=hs_color, linewidth=1.3,
+                        linestyle='-.', alpha=0.8, zorder=7)
+            # Markers: L, H, R
+            ax1.scatter([lx, rx], [hs["left_y"], hs["right_y"]],
+                        color=hs_color, s=35, zorder=9, marker='o', alpha=0.9)
+            ax1.scatter([hx2], [hs["head_y"]],
+                        color=hs_color, s=55, zorder=9, marker='^' if hs["is_inverse"] else 'v', alpha=0.9)
+            # Label
+            hs_status = "CONFIRMED" if hs["confirmed"] else "FORMING"
+            label_y = hs["neckline"] * (1.003 if hs["is_inverse"] else 0.997)
+            ax1.text(rx + 1, label_y,
+                     f" {'🔺' if hs['is_inverse'] else '🔻'} {hs['type'].split()[0]} {hs_status}",
+                     color=hs_color, fontsize=6.5, va='center', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white',
+                               edgecolor=hs_color, alpha=0.75, linewidth=0.7))
     except Exception as pat_err:
         log.warning(f"Pattern draw error: {pat_err}")
 
@@ -2091,39 +2334,254 @@ async def summary_cmd(u,c):
     except Exception as e:
         await m.edit_text(f"❌ Error summary: {e}")
 
+async def pattern_cmd(u, c):
+    """Command /pattern [idx/us] — scan semua saham untuk pattern"""
+    args = c.args
+    market = "us" if args and args[0].lower() == "us" else "idx"
+    flag = "🇺🇸" if market == "us" else "🇮🇩"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+    label = "US" if market == "us" else "IDX"
+    m = await u.message.reply_text(
+        "Scanning Pattern " + label + "...\nTriangle | Double Bottom | Cup&Handle | H&S\nHarap tunggu...",
+        parse_mode="Markdown")
+    try:
+        results = await asyncio.get_event_loop().run_in_executor(
+            None, parallel_pattern_scan, stocks, "D")
+        if not results:
+            await m.edit_text(f"Tidak ada pattern terdeteksi saat ini di {label}.")
+            return
+        now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+        lines = [f"🎯 *{flag} {label} PATTERN SCANNER*",
+                 f"🕐 {now_str} | {len(results)} saham",
+                 "━━━━━━━━━━━━━━━━━━━━"]
+        db_list  = [r for r in results if any(p[0]=="double_bottom" for p in r["patterns"])]
+        ch_list  = [r for r in results if any(p[0]=="cup_handle"    for p in r["patterns"])]
+        tri_list = [r for r in results if any(p[0]=="triangle"      for p in r["patterns"])]
+        hs_list  = [r for r in results if any(p[0]=="hs"            for p in r["patterns"])]
+        if db_list:
+            lines.append(f"\n〰️ *DOUBLE BOTTOM ({len(db_list)}):*")
+            for r in db_list[:5]:
+                is_idr=r["is_idr"]; px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                db=next(p[1] for p in r["patterns"] if p[0]=="double_bottom")
+                st="✅" if db["confirmed"] else "⏳"
+                liq="⚠️" if not r.get("liquid",True) else ""
+                lines.append(f"  {st} *{r['code']}* `{px}` {r['chg']:+.2f}% Depth:`{db['depth_pct']:.1f}%` {liq}")
+        if ch_list:
+            lines.append(f"\n☕ *CUP & HANDLE ({len(ch_list)}):*")
+            for r in ch_list[:5]:
+                is_idr=r["is_idr"]; px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                ch2=next(p[1] for p in r["patterns"] if p[0]=="cup_handle")
+                st="✅" if ch2["confirmed"] else "⏳"
+                lines.append(f"  {st} *{r['code']}* `{px}` {r['chg']:+.2f}% Depth:`{ch2['cup_depth_pct']:.1f}%`")
+        if tri_list:
+            lines.append(f"\n📐 *TRIANGLE ({len(tri_list)}):*")
+            for r in tri_list[:5]:
+                is_idr=r["is_idr"]; px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                tri2=next(p[1] for p in r["patterns"] if p[0]=="triangle")
+                short=tri2["type"].split()[0]
+                lines.append(f"  📐 *{r['code']}* `{px}` {r['chg']:+.2f}% {short} — {tri2['quality']}")
+        if hs_list:
+            lines.append(f"\n🔻 *HEAD & SHOULDERS ({len(hs_list)}):*")
+            for r in hs_list[:5]:
+                is_idr=r["is_idr"]; px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                hs2=next(p[1] for p in r["patterns"] if p[0]=="hs")
+                st="✅" if hs2["confirmed"] else "⏳"
+                emoji="🔺" if hs2["is_inverse"] else "🔻"
+                lines.append(f"  {st}{emoji} *{r['code']}* `{px}` {r['chg']:+.2f}% {hs2['signal']}")
+        lines += ["━━━━━━━━━━━━━━━━━━━━",
+                  "✅=Confirmed ⏳=Forming ⚠️=Low Liq",
+                  "💡 `/chart KODE` untuk lihat chart lengkap",
+                  "📌 `/pattern` = IDX | `/pattern us` = 🇺🇸 US"]
+        await m.edit_text("\n".join(lines), parse_mode="Markdown")
+        best = next((r for r in results if any(
+            p[1].get("confirmed",False) for p in r["patterns"] if isinstance(p[1],dict)
+        )), results[0] if results else None)
+        if best:
+            buf,_=generate_chart(best["code"],"D")
+            if buf:
+                is_idr=best["is_idr"]; px=f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+                pat_names=" | ".join(set(p[0].replace("_"," ").title() for p in best["patterns"]))
+                await u.message.reply_photo(photo=buf,
+                    caption=(f"🎯 *TOP PATTERN {flag}: {best['code']}*\n"
+                             f"`{px}` {best['chg']:+.2f}% | Score:`{best['score']}/8`\n"
+                             f"Pattern: {pat_names}\n⏱ {fmt_now()}"),
+                    parse_mode="Markdown")
+    except Exception as e:
+        await m.edit_text(f"Error pattern scan: {e}")
+
+async def breakout_alert_scan(context):
+    """Auto scan breakout pattern tiap 30 menit."""
+    if not is_weekday(): return
+    if not (is_idx_market_open() or is_us_market_open()): return
+    bot = context.bot
+    stocks = IDX_STOCKS + US_STOCKS
+    all_alerts = []
+    for code in stocks:
+        try:
+            alerts = await asyncio.get_event_loop().run_in_executor(
+                None, check_pattern_breakout, code, "D")
+            all_alerts.extend(alerts)
+        except: pass
+    if not all_alerts: return
+    for uid in list(auto_users.keys()):
+        try:
+            for alert in all_alerts[:5]:
+                await bot.send_message(int(uid), alert["msg"], parse_mode="Markdown")
+                buf,_=generate_chart(alert["code"],"D")
+                if buf:
+                    r2=get_signal(alert["code"],"D")
+                    if "error" not in r2:
+                        ts=calculate_tp_sl(r2)
+                        is_idr=alert["is_idr"]
+                        pf=lambda p:f"Rp {p:,.0f}" if is_idr else f"${p:,.2f}"
+                        await bot.send_photo(int(uid),photo=buf,
+                            caption=(f"📊 *{alert['code']}* | `{pf(alert['price'])}`\n"
+                                     f"TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+                                     f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%)\n"
+                                     f"SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) R/R:`{ts['rr']}x`"),
+                            parse_mode="Markdown")
+        except Exception as e:
+            log.error(f"Breakout alert uid {uid}: {e}")
+
+
+async def pattern_cmd(u, c):
+    args = c.args
+    market = "us" if args and args[0].lower() == "us" else "idx"
+    flag = "\U0001f1fa\U0001f1f8" if market == "us" else "\U0001f1ee\U0001f1e9"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+    label = "US" if market == "us" else "IDX"
+    m = await u.message.reply_text(
+        "Scanning Pattern " + label + "... Triangle | Double Bottom | Cup&Handle | H&S\nHarap tunggu...",
+        parse_mode="Markdown")
+    try:
+        results = await asyncio.get_event_loop().run_in_executor(
+            None, parallel_pattern_scan, stocks, "D")
+        if not results:
+            await m.edit_text("Tidak ada pattern terdeteksi di " + label + " saat ini.")
+            return
+        now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+        lines_msg = [
+            "*" + flag + " " + label + " PATTERN SCANNER*",
+            now_str + " | " + str(len(results)) + " saham",
+            "━━━━━━━━━━━━━━━━━━━━"
+        ]
+        db_list  = [r for r in results if any(p[0]=="double_bottom" for p in r["patterns"])]
+        ch_list  = [r for r in results if any(p[0]=="cup_handle"    for p in r["patterns"])]
+        tri_list = [r for r in results if any(p[0]=="triangle"      for p in r["patterns"])]
+        hs_list  = [r for r in results if any(p[0]=="hs"            for p in r["patterns"])]
+        if db_list:
+            lines_msg.append("\n\u3030\ufe0f *DOUBLE BOTTOM (" + str(len(db_list)) + "):*")
+            for r in db_list[:5]:
+                is_idr=r["is_idr"]
+                px="Rp {:,.0f}".format(r["price"]) if is_idr else "${:,.2f}".format(r["price"])
+                db=next(p[1] for p in r["patterns"] if p[0]=="double_bottom")
+                st="\u2705" if db["confirmed"] else "\u23f3"
+                liq="\u26a0\ufe0f" if not r.get("liquid",True) else ""
+                lines_msg.append("  " + st + " *" + r["code"] + "* `" + px + "` {:+.2f}% Depth:`{:.1f}%` ".format(r["chg"],db["depth_pct"]) + liq)
+        if ch_list:
+            lines_msg.append("\n\u2615 *CUP & HANDLE (" + str(len(ch_list)) + "):*")
+            for r in ch_list[:5]:
+                is_idr=r["is_idr"]
+                px="Rp {:,.0f}".format(r["price"]) if is_idr else "${:,.2f}".format(r["price"])
+                ch2=next(p[1] for p in r["patterns"] if p[0]=="cup_handle")
+                st="\u2705" if ch2["confirmed"] else "\u23f3"
+                lines_msg.append("  " + st + " *" + r["code"] + "* `" + px + "` {:+.2f}% Depth:`{:.1f}%`".format(r["chg"],ch2["cup_depth_pct"]))
+        if tri_list:
+            lines_msg.append("\n\U0001f4d0 *TRIANGLE (" + str(len(tri_list)) + "):*")
+            for r in tri_list[:5]:
+                is_idr=r["is_idr"]
+                px="Rp {:,.0f}".format(r["price"]) if is_idr else "${:,.2f}".format(r["price"])
+                tri2=next(p[1] for p in r["patterns"] if p[0]=="triangle")
+                short=tri2["type"].split()[0]
+                lines_msg.append("  \U0001f4d0 *" + r["code"] + "* `" + px + "` {:+.2f}% {} - {}".format(r["chg"],short,tri2["quality"]))
+        if hs_list:
+            lines_msg.append("\n\U0001f53b *HEAD & SHOULDERS (" + str(len(hs_list)) + "):*")
+            for r in hs_list[:5]:
+                is_idr=r["is_idr"]
+                px="Rp {:,.0f}".format(r["price"]) if is_idr else "${:,.2f}".format(r["price"])
+                hs2=next(p[1] for p in r["patterns"] if p[0]=="hs")
+                st="\u2705" if hs2["confirmed"] else "\u23f3"
+                emoji="\U0001f53a" if hs2["is_inverse"] else "\U0001f53b"
+                lines_msg.append("  " + st + emoji + " *" + r["code"] + "* `" + px + "` {:+.2f}% {}".format(r["chg"],hs2["signal"]))
+        lines_msg += ["━━━━━━━━━━━━━━━━━━━━",
+                      "\u2705=Confirmed \u23f3=Forming \u26a0\ufe0f=Low Liq",
+                      "💡 `/chart KODE` lihat chart",
+                      "📌 `/pattern` = IDX | `/pattern us` = US"]
+        await m.edit_text("\n".join(lines_msg), parse_mode="Markdown")
+        best = next((r for r in results if any(
+            p[1].get("confirmed",False) for p in r["patterns"] if isinstance(p[1],dict)
+        )), results[0] if results else None)
+        if best:
+            buf,_=generate_chart(best["code"],"D")
+            if buf:
+                is_idr=best["is_idr"]
+                px="Rp {:,.0f}".format(best["price"]) if is_idr else "${:,.2f}".format(best["price"])
+                pat_names=" | ".join(set(p[0].replace("_"," ").title() for p in best["patterns"]))
+                await u.message.reply_photo(photo=buf,
+                    caption="*TOP PATTERN " + flag + ": " + best["code"] + "*\n`" + px + "` {:+.2f}% Score:`{}/8`\nPattern: {}\n{}".format(best["chg"],best["score"],pat_names,fmt_now()),
+                    parse_mode="Markdown")
+    except Exception as e:
+        await m.edit_text("Error pattern scan: " + str(e))
+
+async def breakout_alert_scan(context):
+    if not is_weekday(): return
+    if not (is_idx_market_open() or is_us_market_open()): return
+    bot = context.bot
+    stocks = IDX_STOCKS + US_STOCKS
+    all_alerts = []
+    for code in stocks:
+        try:
+            alerts = await asyncio.get_event_loop().run_in_executor(
+                None, check_pattern_breakout, code, "D")
+            all_alerts.extend(alerts)
+        except: pass
+    if not all_alerts: return
+    for uid in list(auto_users.keys()):
+        try:
+            for alert in all_alerts[:5]:
+                await bot.send_message(int(uid), alert["msg"], parse_mode="Markdown")
+                buf,_=generate_chart(alert["code"],"D")
+                if buf:
+                    r2=get_signal(alert["code"],"D")
+                    if "error" not in r2:
+                        ts=calculate_tp_sl(r2)
+                        is_idr=alert["is_idr"]
+                        pf=lambda p,idr=is_idr:"Rp {:,.0f}".format(p) if idr else "${:,.2f}".format(p)
+                        await bot.send_photo(int(uid),photo=buf,
+                            caption="*" + alert["code"] + "* | `" + pf(alert["price"]) + "`\nTP1:`" + ts["tp1_str"] + "`(" + "{:+.1f}%".format(ts["tp1_pct"]) + ") TP2:`" + ts["tp2_str"] + "`(" + "{:+.1f}%".format(ts["tp2_pct"]) + ")\nSL1:`" + ts["sl1_str"] + "`(" + "{:+.1f}%".format(ts["sl1_pct"]) + ") R/R:`" + str(ts["rr"]) + "x`",
+                            parse_mode="Markdown")
+        except Exception as e:
+            log.error("Breakout alert uid " + str(uid) + ": " + str(e))
+
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
-    cmds=[("start",start),("help",help_cmd),("flipstatus",flipstatus_cmd),("signal",signal_cmd),("chart",chart_cmd),
+    cmds=[("start",start),("help",help_cmd),("flipstatus",flipstatus_cmd),
+          ("signal",signal_cmd),("chart",chart_cmd),
           ("tp",tp_cmd),("summary",summary_cmd),
           ("screener",screener_cmd),("screener_us",screener_us_cmd),
-          ("doji",doji_cmd),
-          ("volmom",volmom_cmd),
+          ("doji",doji_cmd),("volmom",volmom_cmd),
+          ("pattern",pattern_cmd),
           ("auto",auto_cmd),("volume",volume_cmd),("trend",trend_cmd)]
     for cmd,fn in cmds: tg.add_handler(CommandHandler(cmd,fn))
     jq=tg.job_queue
-    # ── Background jobs ──
-    # volume spike IDX: tiap 15 menit — skip weekend & di luar jam IDX (guard di dalam fn)
     jq.run_repeating(volume_spike_scan_idx,interval=900,first=120)
-    # volume spike US: tiap 15 menit — skip weekend & di luar jam US (guard di dalam fn)
     jq.run_repeating(volume_spike_scan_us,interval=900,first=180)
-    # morning & evening scan: daily job — guard is_weekday() di dalam fn
     jq.run_daily(morning_scan,time=dtime(9,0,tzinfo=WIB))
     jq.run_daily(evening_summary,time=dtime(16,5,tzinfo=WIB))
-    # flip pixel: tiap 30 menit — guard is_weekday() + is_market_open() di dalam fn
     jq.run_repeating(flip_pixel_scan,interval=1800,first=300)
-    # doji auto: tiap 1 jam — guard is_weekday() + is_idx_market_open() di dalam fn
     jq.run_repeating(doji_auto_scan,interval=3600,first=600)
-    # volume momentum: tiap 30 menit — guard is_weekday() + is_idx_market_open() di dalam fn
     jq.run_repeating(volmom_auto_scan,interval=1800,first=900)
+    jq.run_repeating(breakout_alert_scan,interval=1800,first=1200)
     now=datetime.now(WIB)
     if now.weekday()>=5:
-        log.info(f"⚠️ Bot start di hari {now.strftime('%A')} — semua auto scan NON-AKTIF hingga Senin 09:00 WIB")
+        log.info("Bot start " + now.strftime('%A') + " - auto scan OFF")
     else:
-        log.info("IDX QUANT Bot v4 polling — weekday mode aktif")
+        log.info("IDX QUANT Bot v5 polling - aktif")
     tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
-    log.info(f"IDX QUANT v3 FAST port {PORT}")
-    threading.Thread(target=run_flask,daemon=True).start()
+    log.info("IDX QUANT v5 port " + str(PORT))
+    import threading as _th
+    _th.Thread(target=run_flask,daemon=True).start()
     run_bot()
