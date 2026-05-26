@@ -1407,6 +1407,8 @@ async def start(u,c):
         "🔍 *Screener:*\n"
         "`/screener` — Top picks IDX\n"
         "`/screener us` — Top picks US stocks\n"
+        "`/screener_ideal` — 🏆 Ideal picks (filter ketat)\n"
+        "`/screener_ideal us` — 🏆 US Ideal picks\n"
         "`/doji` — Doji Bullish Reversal scan 1H+4H+1D IDX\n"
         "`/doji us` — Doji scan US stocks\n\n"
         "🌊 *Volume Momentum (BARU):*\n"
@@ -1443,7 +1445,10 @@ async def help_cmd(u,c):
         "`/tp KODE [TF]` — TP1/TP2/TP3 + SL1/SL2/SL3 + R/R Ratio\n\n"
         "*Screener:*\n"
         "`/screener [idx/min_score]` — IDX screener (parallel)\n"
-        "`/screener us` atau `/screener_us` — US stock screener\n\n"
+        "`/screener us` atau `/screener_us` — US stock screener\n"
+        "`/screener_ideal` — 🏆 IDX Ideal (Score≥6+Uptrend+RSI+MACD+R/R≥1.5x)\n"
+        "`/screener_ideal us` — 🏆 US Ideal Screener\n"
+        "🤖 Auto alert Ideal Screener: open/close IDX&US + tiap 1jam + tiap 4jam\n\n"
         "🕯 *Doji Bullish Reversal:*\n"
         "`/doji` — Scan doji IDX di TF 1H + 4H + 1D\n"
         "`/doji us` — Scan doji US stocks\n"
@@ -2553,6 +2558,198 @@ async def breakout_alert_scan(context):
         except Exception as e:
             log.error("Breakout alert uid " + str(uid) + ": " + str(e))
 
+# ══════════════════════════════════════════════════════════════
+# IDEAL SCREENER — Filter ketat: Score≥6, R/R≥1.5x, Uptrend,
+# RSI 40-65, MACD positif, Harga > MA20 & MA50
+# ══════════════════════════════════════════════════════════════
+
+MIN_SCORE_IDEAL   = 6      # Score minimum dari 8
+MIN_RR_IDEAL      = 1.5    # Risk/Reward minimum
+RSI_MIN_IDEAL     = 40     # RSI lower bound
+RSI_MAX_IDEAL     = 65     # RSI upper bound (hindari overbought)
+
+def ideal_screener_scan(stock_list, tf="D", max_workers=10):
+    """
+    Scan semua saham dan filter dengan kriteria ideal:
+    - Score >= 6/8
+    - Uptrend (harga > MA20 & MA50)
+    - RSI 40-65 (zona sehat)
+    - MACD positif (macd line > signal line)
+    - R/R >= 1.5x
+    Returns list of (signal_dict, tp_sl_dict) sorted by score desc.
+    """
+    candidates = []
+
+    def scan_one(code):
+        try:
+            r = get_signal(code, tf)
+            if "error" in r: return None
+            # ── Filter 1: Score ──
+            if r["score"] < MIN_SCORE_IDEAL: return None
+            # ── Filter 2: Uptrend (harga di atas MA20 & MA50) ──
+            if not (r["price"] > r["e20"] and r["price"] > r["e50"]): return None
+            # ── Filter 3: RSI zona sehat ──
+            if not (RSI_MIN_IDEAL <= r["rsi"] <= RSI_MAX_IDEAL): return None
+            # ── Filter 4: MACD positif ──
+            if not (r["macd"] > r["msig"]): return None
+            # ── Filter 5: Harga juga di atas EMA9 (momentum) ──
+            if r["price"] < r["e9"]: return None
+            # ── Hitung R/R ──
+            ts = calculate_tp_sl(r)
+            if ts["rr"] < MIN_RR_IDEAL: return None
+            return (r, ts)
+        except Exception as e:
+            log.warning(f"ideal screener error {code}: {e}")
+            return None
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(scan_one, code): code for code in stock_list}
+        for future in as_completed(futures):
+            try:
+                res = future.result(timeout=20)
+                if res: candidates.append(res)
+            except Exception as e:
+                log.warning(f"ideal screener future error {futures[future]}: {e}")
+
+    # Sort: score tertinggi dulu, lalu R/R tertinggi
+    candidates.sort(key=lambda x: (-x[0]["score"], -x[1]["rr"]))
+    return candidates
+
+
+def fmt_ideal_screener_msg(candidates, market_name="IDX", tf="D"):
+    """Format pesan Telegram untuk ideal screener."""
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    flag = "🇺🇸" if market_name == "US" else "🇮🇩"
+    lines = [
+        f"🏆 *IDEAL SCREENER {flag} {market_name} — TF:{tf}*",
+        f"🕐 {now_str}",
+        f"🎯 Filter: Score≥{MIN_SCORE_IDEAL} | Uptrend | RSI {RSI_MIN_IDEAL}-{RSI_MAX_IDEAL} | MACD+ | R/R≥{MIN_RR_IDEAL}x",
+        "━━━━━━━━━━━━━━━━━━━━"
+    ]
+    if not candidates:
+        lines.append("❌ Belum ada saham yang memenuhi semua kriteria saat ini.")
+        lines.append("💡 Coba lagi nanti atau turunkan filter via /screener")
+    else:
+        lines.append(f"✅ *{len(candidates)} saham lolos filter:*\n")
+        for i, (r, ts) in enumerate(candidates[:8], 1):
+            is_idr = r["ticker"].endswith(".JK")
+            px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+            top_sig = r["sigs"][0].split("-")[0].strip() if r["sigs"] else "—"
+            liq_tag = " ⚠️" if not r.get("liquid", True) else ""
+            lines.append(
+                f"{i}. 🔥 *{r['code']}* `{px}` {r['chg']:+.2f}%{liq_tag}\n"
+                f"   Score:`{r['score']}/8` | RSI:`{r['rsi']:.0f}` | R/R:`{ts['rr']}x`\n"
+                f"   {top_sig}\n"
+                f"   🎯TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+                f"🛡SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%)"
+            )
+    lines += [
+        "━━━━━━━━━━━━━━━━━━━━",
+        "✅=Liquid ⚠️=Low Liq | Selalu konfirmasi sebelum entry!",
+        f"⏱ {now_str}"
+    ]
+    return "\n".join(lines)
+
+
+async def screener_ideal_cmd(u, c):
+    """Command /screener_ideal [us] — manual trigger ideal screener"""
+    args   = c.args
+    market = "us" if args and args[0].lower() == "us" else "idx"
+    flag   = "🇺🇸" if market == "us" else "🇮🇩"
+    label  = "US" if market == "us" else "IDX"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+    tf     = "D"
+
+    m = await u.message.reply_text(
+        f"🔍 Scanning *{flag} {label} IDEAL SCREENER*...\n"
+        f"Filter: Score≥{MIN_SCORE_IDEAL} | Uptrend | RSI {RSI_MIN_IDEAL}-{RSI_MAX_IDEAL} | MACD+ | R/R≥{MIN_RR_IDEAL}x\n"
+        f"Harap tunggu ~30 detik...",
+        parse_mode="Markdown")
+    try:
+        candidates = await asyncio.get_event_loop().run_in_executor(
+            None, ideal_screener_scan, stocks, tf)
+        msg = fmt_ideal_screener_msg(candidates, label, tf)
+        await m.edit_text(msg, parse_mode="Markdown")
+
+        # Kirim chart top 3 lolos
+        for r, ts in candidates[:3]:
+            buf, _ = generate_chart(r["code"], tf)
+            if buf:
+                is_idr = r["ticker"].endswith(".JK")
+                px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                await u.message.reply_photo(photo=buf,
+                    caption=(f"🏆 *IDEAL PICK {flag}: {r['code']}*\n"
+                             f"`{px}` {r['chg']:+.2f}% | Score:`{r['score']}/8`\n"
+                             f"{r['trend']} | RSI:`{r['rsi']:.0f}` | MACD:`{r['macd']:.1f}`\n"
+                             f"━━━━━━━━━━━━━━━\n"
+                             f"🎯 TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+                             f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%)\n"
+                             f"🛡 SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
+                             f"SL2:`{ts['sl2_str']}`({ts['sl2_pct']:+.1f}%)\n"
+                             f"⚖️ R/R:`{ts['rr']}x` | {fmt_now()}"),
+                    parse_mode="Markdown")
+    except Exception as e:
+        await m.edit_text(f"❌ Error ideal screener: {e}")
+
+
+async def ideal_screener_auto(context):
+    """
+    Auto scan IDEAL SCREENER — kirim ke semua auto_users.
+    Dipanggil pada:
+    - Market open IDX (09:05 WIB)
+    - Market open US (21:35 WIB)
+    - Tiap 1 jam saat market buka
+    - Tiap 4 jam (cross-session)
+    - Market close IDX (15:20 WIB) & US (04:05 WIB)
+    """
+    if not is_weekday(): return
+    if not auto_users: return
+    bot = context.bot
+
+    # Tentukan market aktif
+    idx_open = is_idx_market_open()
+    us_open  = is_us_market_open()
+    if not idx_open and not us_open: return
+
+    tasks = []
+    if idx_open:
+        tasks.append(("IDX", IDX_STOCKS, "🇮🇩"))
+    if us_open:
+        tasks.append(("US", US_STOCKS, "🇺🇸"))
+
+    for label, stocks, flag in tasks:
+        try:
+            candidates = await asyncio.get_event_loop().run_in_executor(
+                None, ideal_screener_scan, stocks, "D")
+            if not candidates:
+                log.info(f"Ideal screener {label}: tidak ada yang lolos filter")
+                continue
+            msg = fmt_ideal_screener_msg(candidates, label, "D")
+            for uid in list(auto_users.keys()):
+                try:
+                    await bot.send_message(int(uid), msg, parse_mode="Markdown")
+                    # Kirim chart top 1
+                    best_r, best_ts = candidates[0]
+                    buf, _ = generate_chart(best_r["code"], "D")
+                    if buf:
+                        is_idr = best_r["ticker"].endswith(".JK")
+                        px = f"Rp {best_r['price']:,.0f}" if is_idr else f"${best_r['price']:,.2f}"
+                        await bot.send_photo(int(uid), photo=buf,
+                            caption=(f"🏆 *BEST IDEAL PICK {flag}: {best_r['code']}*\n"
+                                     f"`{px}` {best_r['chg']:+.2f}% | Score:`{best_r['score']}/8`\n"
+                                     f"{best_r['trend']} | RSI:`{best_r['rsi']:.0f}` | R/R:`{best_ts['rr']}x`\n"
+                                     f"━━━━━━━━━━━━━━━\n"
+                                     f"🎯 TP1:`{best_ts['tp1_str']}`({best_ts['tp1_pct']:+.1f}%) "
+                                     f"TP2:`{best_ts['tp2_str']}`({best_ts['tp2_pct']:+.1f}%)\n"
+                                     f"🛡 SL1:`{best_ts['sl1_str']}`({best_ts['sl1_pct']:+.1f}%) "
+                                     f"R/R:`{best_ts['rr']}x`\n⏱ {fmt_now()}"),
+                            parse_mode="Markdown")
+                except Exception as e:
+                    log.error(f"ideal screener auto send uid {uid}: {e}")
+        except Exception as e:
+            log.error(f"ideal screener auto {label}: {e}")
+
+
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
@@ -2560,6 +2757,7 @@ def run_bot():
           ("signal",signal_cmd),("chart",chart_cmd),
           ("tp",tp_cmd),("summary",summary_cmd),
           ("screener",screener_cmd),("screener_us",screener_us_cmd),
+          ("screener_ideal",screener_ideal_cmd),
           ("doji",doji_cmd),("volmom",volmom_cmd),
           ("pattern",pattern_cmd),
           ("auto",auto_cmd),("volume",volume_cmd),("trend",trend_cmd)]
@@ -2573,11 +2771,26 @@ def run_bot():
     jq.run_repeating(doji_auto_scan,interval=3600,first=600)
     jq.run_repeating(volmom_auto_scan,interval=1800,first=900)
     jq.run_repeating(breakout_alert_scan,interval=1800,first=1200)
+
+    # ══ IDEAL SCREENER AUTO SCHEDULE ══
+    # Market open pagi IDX: 09:05 WIB
+    jq.run_daily(ideal_screener_auto, time=dtime(9,5,tzinfo=WIB))
+    # Market close IDX: 15:20 WIB
+    jq.run_daily(ideal_screener_auto, time=dtime(15,20,tzinfo=WIB))
+    # Market open US: 21:35 WIB
+    jq.run_daily(ideal_screener_auto, time=dtime(21,35,tzinfo=WIB))
+    # Market close US: 04:05 WIB
+    jq.run_daily(ideal_screener_auto, time=dtime(4,5,tzinfo=WIB))
+    # Tiap 1 jam saat market aktif (interval 3600 detik, first=1800)
+    jq.run_repeating(ideal_screener_auto, interval=3600, first=1800)
+    # Tiap 4 jam cross-session (interval 14400 detik, first=7200)
+    jq.run_repeating(ideal_screener_auto, interval=14400, first=7200)
+
     now=datetime.now(WIB)
     if now.weekday()>=5:
         log.info("Bot start " + now.strftime('%A') + " - auto scan OFF")
     else:
-        log.info("IDX QUANT Bot v5 polling - aktif")
+        log.info("IDX QUANT Bot v5 polling - aktif + Ideal Screener ON")
     tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
