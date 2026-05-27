@@ -37,29 +37,13 @@ IDX_STOCKS=["ADMR","ENRG","ANTM","NCKL","MBMA","PTBA","MEDC","BULL","TMAS","INCO
             "FIRE","TINS","ZINC","KIJA","LSIP","SSMS","SLIS","NFCX","CUAN","NICK",
             "PTRO","BSBK","PACK","TPIA","EMTK","FILM","ACES","MAPA","MTEL","ISAT"]
 
-# ✅ FIX: Semua 50 US stocks discan (sebelumnya [:30])
+# ✅ FIX: Hapus duplikat MU, tambah SNDK/COHR/GLW
 US_STOCKS=["PLTR","MU","NVDA","AAPL","TSLA","AMD","META","GOOGL","MSFT","AMZN",
            "INTC","TSM","ASML","BABA","JD","NIO","SMCI","ARM","AVGO","QCOM",
            "SPY","QQQ","MARA","CLSK","RIOT","MELI","SHOP","SQ","PYPL","SNAP",
            "UBER","LYFT","ABNB","NET","DDOG","SNOW","ZM","CRWD","PANW","OKTA",
            "APP","MSTR","COIN","SOFI","HOOD","RKLB","IONQ","QUBT","RGTI","JOBY",
-           "SNDK","MU","AMAT","LRCX","KLAC","MRVL","NXPI","ON","STM","TXN"]
-
-# ══ MARKET HOURS ══
-def is_idx_market_open():
-    now=datetime.now(WIB)
-    if now.weekday()>=5: return False
-    t=now.time()
-    return dtime(9,0)<=t<=dtime(15,15)
-
-def is_us_market_open():
-    now=datetime.now(WIB)
-    if now.weekday()>=5: return False
-    t=now.time()
-    return t>=dtime(21,30) or t<=dtime(4,0)
-
-def is_weekday():
-    return datetime.now(WIB).weekday()<5
+           "SNDK","COHR","GLW","AMAT","LRCX","KLAC","MRVL","NXPI","ON","TXN"]
 
 # ══ HARI LIBUR BURSA IDX 2026 ══
 from datetime import date as _date
@@ -94,6 +78,23 @@ def is_idx_holiday():
 def is_idx_trading_day():
     """Return True hanya kalau weekday DAN bukan libur bursa"""
     return is_weekday() and not is_idx_holiday()
+
+# ══ MARKET HOURS ══
+def is_idx_market_open():
+    now=datetime.now(WIB)
+    if now.weekday()>=5: return False
+    if now.date() in IDX_HOLIDAYS: return False  # skip libur nasional
+    t=now.time()
+    return dtime(9,0)<=t<=dtime(15,15)
+
+def is_us_market_open():
+    now=datetime.now(WIB)
+    if now.weekday()>=5: return False
+    t=now.time()
+    return t>=dtime(21,30) or t<=dtime(4,0)
+
+def is_weekday():
+    return datetime.now(WIB).weekday()<5
 
 # ══ LOW LIQUIDITY FILTER ══
 IDX_MIN_AVG_VOLUME = 500_000
@@ -1376,15 +1377,20 @@ def calculate_tp_sl(r):
         tp2 = price * 1.09
         tp3 = price * 1.16
 
-    # ── Stop Loss (SL) ──
-    # SL1: Di bawah EMA9 tipis — exit awal (3%)
-    # SL2: Di bawah MA20 — trend melemah (6–7%)
-    # SL3: Di bawah MA50 — cut loss (10–12%)
-    sl1 = min(e9  * 0.97,  price * 0.97)
-    sl2 = min(e20 * 0.96,  price * 0.94)
-    sl3 = min(e50 * 0.95,  price * 0.89)
+    # ── Stop Loss (SL) — berbasis ATR lebih ketat ──
+    # SL1: 1x ATR di bawah harga (tight stop)
+    # SL2: 1.5x ATR di bawah harga (normal stop)
+    # SL3: Di bawah MA50 atau 2.5x ATR (max stop)
+    sl1 = price - (1.0 * atr)
+    sl2 = price - (1.5 * atr)
+    sl3 = min(e50 * 0.97, price - (2.5 * atr))
 
-    # Pastikan SL tidak terbalik
+    # Pastikan SL tidak terbalik dan tidak terlalu dalam (max -15%)
+    sl1 = max(sl1, price * 0.85)
+    sl2 = max(sl2, price * 0.82)
+    sl3 = max(sl3, price * 0.78)
+
+    # Pastikan urutan sl1 > sl2 > sl3
     sl1 = min(sl1, price * 0.97)
     sl2 = min(sl2, sl1  * 0.97)
     sl3 = min(sl3, sl2  * 0.97)
@@ -2775,8 +2781,8 @@ async def ideal_screener_auto(context):
     if not auto_users: return
     bot = context.bot
 
-    # Tentukan market aktif
-    idx_open = is_idx_market_open()
+    # Tentukan market aktif — IDX harus cek hari libur juga
+    idx_open = is_idx_market_open()  # sudah include holiday check
     us_open  = is_us_market_open()
     if not idx_open and not us_open: return
 
@@ -2859,11 +2865,11 @@ def run_bot():
     if now.weekday()>=5:
         log.info("Bot start " + now.strftime('%A') + " - auto scan OFF")
     else:
-        log.info("IDX QUANT Bot v5 polling - aktif + Ideal Screener ON")
+        log.info("IDX QUANT Bot v5.1 polling - Holiday+SL fix aktif")
     tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
-    log.info("IDX QUANT v5 port " + str(PORT))
+    log.info("IDX QUANT v5.1 port " + str(PORT))
     import threading as _th
     _th.Thread(target=run_flask,daemon=True).start()
     run_bot()
