@@ -61,6 +61,40 @@ def is_us_market_open():
 def is_weekday():
     return datetime.now(WIB).weekday()<5
 
+# ══ HARI LIBUR BURSA IDX 2026 ══
+from datetime import date as _date
+IDX_HOLIDAYS = {
+    _date(2026,1,1),   # Tahun Baru
+    _date(2026,1,27),  # Isra Miraj
+    _date(2026,1,28),  # Cuti bersama Imlek
+    _date(2026,1,29),  # Tahun Baru Imlek
+    _date(2026,3,20),  # Nyepi
+    _date(2026,3,31),  # Idul Fitri
+    _date(2026,4,1),   # Idul Fitri
+    _date(2026,4,2),   # Cuti bersama
+    _date(2026,4,3),   # Cuti bersama
+    _date(2026,4,6),   # Cuti bersama
+    _date(2026,5,1),   # Hari Buruh
+    _date(2026,5,14),  # Kenaikan Isa Almasih
+    _date(2026,5,27),  # Waisak
+    _date(2026,6,1),   # Hari Pancasila
+    _date(2026,6,4),   # Idul Adha
+    _date(2026,6,26),  # Tahun Baru Islam
+    _date(2026,8,17),  # HUT RI
+    _date(2026,9,4),   # Maulid Nabi
+    _date(2026,12,24), # Cuti bersama Natal
+    _date(2026,12,25), # Natal
+    _date(2026,12,31), # Cuti bersama
+}
+
+def is_idx_holiday():
+    """Return True kalau hari ini libur bursa IDX"""
+    return datetime.now(WIB).date() in IDX_HOLIDAYS
+
+def is_idx_trading_day():
+    """Return True hanya kalau weekday DAN bukan libur bursa"""
+    return is_weekday() and not is_idx_holiday()
+
 # ══ LOW LIQUIDITY FILTER ══
 IDX_MIN_AVG_VOLUME = 500_000
 IDX_MIN_PRICE = 100
@@ -1869,7 +1903,7 @@ async def auto_cmd(u,c):
     if args[0].lower()=="on":
         auto_users[uid]=True; save_json(AUTO_FILE,auto_users)
         await u.message.reply_text(
-            "🤖 *Auto Scan AKTIF v4!*\n\n"
+            "🤖 *Auto Scan AKTIF v5!*\n\n"
             "🇮🇩 *IDX Scanner:* aktif *09:00-15:15 WIB* (weekday)\n"
             "🇺🇸 *US Scanner:* aktif *21:30-04:00 WIB* (weekday)\n"
             "⏰ Volume spike alert setiap *15 menit*\n"
@@ -1877,7 +1911,10 @@ async def auto_cmd(u,c):
             "🌅 Morning scan IDX setiap jam *09:00 WIB*\n"
             "🌆 *Evening summary* recap harian jam *16:05 WIB*\n"
             "🕯 *Doji scan* tiap 1 jam saat market buka\n"
+            "🏆 *Ideal Screener:* open/close IDX&US + tiap 1jam + tiap 4jam\n"
             "⚡ *Parallel scan 10 thread — lebih cepat & akurat!*\n\n"
+            "🏖 *Auto skip libur nasional IDX* (tidak spam)\n"
+            "📊 *Score rendah = notif ringkas* (tidak kirim chart)\n"
             "⚠️ LOW LIQUIDITY = saham illiquid otomatis diberi tanda",
             parse_mode="Markdown")
     else:
@@ -1933,8 +1970,7 @@ async def trend_cmd(u,c):
 # ══ BACKGROUND JOBS ══
 
 async def volume_spike_scan_idx(context):
-    # ✅ FIX: is_idx_market_open() sudah include weekday check, tapi eksplisit lebih aman
-    if not is_weekday(): return
+    if not is_idx_trading_day(): return  # skip weekend + libur nasional
     if not is_idx_market_open(): return
     if not auto_users: return
     bot=context.bot
@@ -2004,7 +2040,7 @@ async def volume_spike_scan_us(context):
         except Exception as e: log.error(f"US spike alert error uid {uid}: {e}")
 
 async def flip_pixel_scan(context):
-    if not is_weekday(): return
+    if not is_idx_trading_day(): return  # skip weekend + libur nasional
     if not auto_users: return
     if not (is_idx_market_open() or is_us_market_open()): return
     bot=context.bot
@@ -2063,7 +2099,7 @@ async def flip_pixel_scan(context):
 
 async def doji_auto_scan(context):
     """Auto scan doji bullish reversal IDX tiap 1 jam saat market buka"""
-    if not is_weekday(): return
+    if not is_idx_trading_day(): return  # skip weekend + libur nasional
     if not auto_users: return
     if not is_idx_market_open(): return
     bot = context.bot
@@ -2109,7 +2145,7 @@ async def doji_auto_scan(context):
 
 async def evening_summary(context, force=False):
     """📋 Rekap harian otomatis jam 16:00 WIB — top sinyal, mover, vol spike"""
-    if not force and not is_weekday(): return
+    if not force and not is_idx_trading_day(): return  # skip weekend + libur nasional
     if not auto_users: return
     bot = context.bot
     now = datetime.now(WIB)
@@ -2185,25 +2221,58 @@ async def evening_summary(context, force=False):
         except Exception as e: log.error(f"evening summary uid {uid}: {e}")
 
 async def morning_scan(context):
-    if not is_weekday(): return
+    if not is_idx_trading_day(): return  # skip weekend + libur nasional
     if not auto_users: return
     now=datetime.now(WIB); bot=context.bot
+
+    # Cek libur — kirim notif lalu stop
+    if is_idx_holiday():
+        for uid in auto_users:
+            try:
+                await bot.send_message(int(uid),
+                    f"🏖 *BURSA IDX LIBUR HARI INI*\n"
+                    f"📅 {now.strftime('%d %b %Y')} — Hari Libur Nasional\n"
+                    f"🇺🇸 US Market tetap buka malam ini jam 21:30 WIB",
+                    parse_mode="Markdown")
+            except Exception as e: log.error(f"morning scan holiday notif {uid}: {e}")
+        return
+
     # ✅ FIX: Parallel morning scan
     res = await asyncio.get_event_loop().run_in_executor(
         None, parallel_signal_scan, IDX_STOCKS, "D", 4)
     res=[r for r in res if r.get("liquid",True)]
+
+    # Cek apakah ada saham dengan score layak (>=4)
+    res_layak = [r for r in res if r["score"] >= 4]
+
     for uid in auto_users:
         try:
+            if not res_layak:
+                # Semua score rendah — kirim notif tapi tidak spam chart
+                all_scores = [r["score"] for r in res] if res else [0]
+                avg_score = sum(all_scores)/len(all_scores) if all_scores else 0
+                await bot.send_message(int(uid),
+                    f"🌅 *MORNING SCAN IDX — {now.strftime('%d %b %Y')}*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n"
+                    f"⚠️ *Kondisi pasar lemah hari ini*\n"
+                    f"📊 Rata-rata Score: `{avg_score:.1f}/8`\n"
+                    f"❌ Tidak ada saham dengan score ≥4\n\n"
+                    f"💡 Saran: Tunggu, jangan dipaksakan entry.\n"
+                    f"🔍 Cek manual via `/screener` atau `/trend`\n"
+                    f"━━━━━━━━━━━━━━━━━━━━\n⏱ {fmt_now()}",
+                    parse_mode="Markdown")
+                continue
+
             lines=["🌅 *MORNING SCAN IDX — "+now.strftime("%d %b %Y")+"*",
                    "━━━━━━━━━━━━━━━━━━━━","🔥 Top picks hari ini (liquid only):\n"]
-            for r in res[:8]:
+            for r in res_layak[:8]:
                 em="🟢" if r["chg"]>=0 else "🔴"
                 top=r["sigs"][0].split("-")[0].strip() if r["sigs"] else "—"
                 lines.append(f"{em} *{r['code']}* `{r['price']:,.0f}` Score:`{r['score']}/8` {top}")
             lines+=["━━━━━━━━━━━━━━━━━━━━",
                     "🤖 IDX scan aktif 09:00-15:15 WIB\n🇺🇸 US scan aktif 21:30-04:00 WIB"]
             await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-            for r in res[:3]:
+            for r in res_layak[:3]:
                 buf,_=generate_chart(r["code"],"D")
                 if buf:
                     ts = calculate_tp_sl(r)
