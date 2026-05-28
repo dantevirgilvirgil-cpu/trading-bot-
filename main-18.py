@@ -1449,7 +1449,7 @@ def fmt_tp_sl_block(ts, is_idr=True):
 # ══════════════════════════════════════════
 async def start(u,c):
     await u.message.reply_text(
-        "⚡ *IDX QUANT Bot v4 — T1MO × Wisdom*\n\n"
+        "⚡ *IDX QUANT Bot v5.1 — T1MO × Wisdom*\n\n"
         "📊 *Chart & Signal:*\n"
         "`/signal BBCA` — Signal + indikator\n"
         "`/signal PLTR D` — Saham US juga bisa!\n"
@@ -1460,7 +1460,7 @@ async def start(u,c):
         "`/screener us` — Top picks US stocks\n"
         "`/screener_ideal` — 🏆 Ideal picks (filter ketat)\n"
         "`/screener_ideal us` — 🏆 US Ideal picks\n"
-        "`/doji` — Doji Bullish Reversal scan 1H+4H+1D IDX\n"
+        "`/doji` — Doji scan IDX (manual: 1H+4H+D) / auto: TF 4H\n"
         "`/doji us` — Doji scan US stocks\n\n"
         "🌊 *Volume Momentum (BARU):*\n"
         "`/volmom` — IDX: volume naik terus 5M→15M→30M→1H\n"
@@ -1472,7 +1472,7 @@ async def start(u,c):
         "`/volume` — Top volume IDX\n"
         "`/trend` — Market overview\n"
         "`/help` — Bantuan lengkap\n\n"
-        "⚡ *v4: TP/SL otomatis + Evening Summary + VolMom Multi-TF*",
+        "⚡ *v5.1: Holiday skip + ATR SL + Ideal Screener + Doji/Volmom 4H*",
         parse_mode="Markdown")
 
 async def flipstatus_cmd(u,c):
@@ -1489,7 +1489,7 @@ async def flipstatus_cmd(u,c):
 
 async def help_cmd(u,c):
     await u.message.reply_text(
-        "📖 *IDX QUANT v4 — Command List*\n\n"
+        "📖 *IDX QUANT v5.1 — Command List*\n\n"
         "*Signal & Chart:*\n"
         "`/signal KODE [TF]` — TF: 5M 15M 30M 1H 4H D W M\n"
         "`/chart KODE [TF]` — Gambar chart candlestick\n"
@@ -1501,9 +1501,9 @@ async def help_cmd(u,c):
         "`/screener_ideal us` — 🏆 US Ideal Screener\n"
         "🤖 Auto alert Ideal Screener: open/close IDX&US + tiap 1jam + tiap 4jam\n\n"
         "🕯 *Doji Bullish Reversal:*\n"
-        "`/doji` — Scan doji IDX di TF 1H + 4H + 1D\n"
+        "`/doji` — Scan doji IDX (manual: 1H+4H+D) / auto: TF 4H\n"
         "`/doji us` — Scan doji US stocks\n"
-        "🤖 Auto alert doji tiap 1 jam saat IDX buka\n\n"
+        "🤖 Auto alert doji TF 4H tiap 1 jam | /doji_auto on|off\n\n"
         "🌊 *Volume Momentum (BARU):*\n"
         "`/volmom` — Scan IDX volume naik konsisten 5M→15M→30M→1H\n"
         "`/volmom us` — Scan US stocks volume momentum\n"
@@ -1521,7 +1521,7 @@ async def help_cmd(u,c):
         "🔔 Auto alert flip tiap 30 menit (aktifkan /auto on)\n\n"
         "Score: 1-3 Lemah | 4-5 OK | 6+ 🔥\n"
         "⚠️ LOW LIQUIDITY = saham illiquid/gorengan\n"
-        "⚡ v4: TP/SL otomatis | Evening Summary 16:05 | Volmom Multi-TF",
+        "⚡ v5.1: Holiday skip + Ideal Screener + Doji/Volmom 4H",
         parse_mode="Markdown")
 
 async def signal_cmd(u,c):
@@ -2383,7 +2383,7 @@ def pixel_dashboard():
     f=os.path.join(os.path.dirname(__file__),"pixel_dashboard.html")
     return send_file(f) if os.path.exists(f) else ("pixel_dashboard.html not found",404)
 @app.route("/health")
-def health(): return jsonify({"status":"ok","version":"v4","alerts":len(alerts_db),
+def health(): return jsonify({"status":"ok","version":"v5.1","alerts":len(alerts_db),
                                "auto_users":len(auto_users),"cache_size":len(_data_cache),
                                "idx_market_open":is_idx_market_open(),
                                "us_market_open":is_us_market_open()})
