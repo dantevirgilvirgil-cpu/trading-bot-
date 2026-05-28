@@ -124,6 +124,8 @@ def save_json(f,data):
 alerts_db=load_json(ALERT_FILE)
 watchlist_db=load_json(WL_FILE)
 auto_users=load_json(AUTO_FILE)
+doji_auto_enabled  = True   # /doji_auto on|off
+volmom_auto_enabled = True  # /volmom_auto on|off
 
 # == FLIP ALERT STATE ==
 FLIP_FILE="/tmp/flip_state.json"
@@ -430,6 +432,10 @@ def doji_scan_all_tf(stock_list):
     for tf in ["1H", "4H", "D"]:
         all_results[tf] = doji_screener_tf(stock_list, tf)
     return all_results
+
+def doji_scan_tf(stock_list, tf="4H"):
+    """Scan doji bullish reversal di 1 TF saja — hemat resource"""
+    return {tf: doji_screener_tf(stock_list, tf)}
 
 def fmt_doji_msg(results_by_tf, market_name="IDX"):
     """Format pesan Telegram untuk doji screener hasil"""
@@ -1093,9 +1099,11 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.plot([x0, x1],[u["y0"], u["y1"]],
                      color="#f39c12", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
                      label="Upper TL")
-            # Pivot dots
+            # Pivot arrows (ganti titik → panah kecil)
             for px2, py2 in zip([tl_offset+px3 for px3 in u["pivot_x"]], u["pivot_y"]):
-                ax1.scatter(px2, py2, color="#f39c12", s=18, zorder=8, alpha=0.8)
+                ax1.annotate('', xy=(px2, py2), xytext=(px2, py2 * 1.012),
+                    arrowprops=dict(arrowstyle='->', color='#e67e22', lw=1.2),
+                    zorder=8)
 
         if "lower" in tl:
             lo2 = tl["lower"]
@@ -1104,7 +1112,9 @@ def generate_chart(code, tf="D", volume_spikes=None):
                      color="#27ae60", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
                      label="Lower TL")
             for px2, py2 in zip([tl_offset+px3 for px3 in lo2["pivot_x"]], lo2["pivot_y"]):
-                ax1.scatter(px2, py2, color="#27ae60", s=18, zorder=8, alpha=0.8)
+                ax1.annotate('', xy=(px2, py2), xytext=(px2, py2 * 0.988),
+                    arrowprops=dict(arrowstyle='->', color='#27ae60', lw=1.2),
+                    zorder=8)
 
         # ── TRIANGLE ──
         tri = detect_triangle(highs, lows, closes, min(n, 40))
@@ -1876,14 +1886,15 @@ async def volmom_cmd(u, c):
                 parse_mode="Markdown")
 
 async def volmom_auto_scan(context):
-    """Auto scan volume momentum tiap 30 menit saat IDX buka"""
-    if not is_idx_trading_day(): return  # skip weekend + libur nasional
+    """Auto scan volume momentum IDX — hanya 4H (hemat resource)"""
+    if not is_idx_trading_day(): return
     if not auto_users: return
+    if not volmom_auto_enabled: return  # bisa dimatikan via /volmom_auto off
     if not is_idx_market_open(): return
     bot = context.bot
+    # Hanya scan dengan TF referensi 4H
     results = await asyncio.get_event_loop().run_in_executor(
         None, volmom_screener, IDX_STOCKS)
-    # Hanya kirim kalau ada yang score tinggi (>=6) — filter noise
     hot = [r for r in results if r["mom_score"] >= 6]
     if not hot: return
     msg = fmt_volmom_msg(hot, "🇮🇩 IDX AUTO")
@@ -1910,23 +1921,55 @@ async def auto_cmd(u,c):
     if args[0].lower()=="on":
         auto_users[uid]=True; save_json(AUTO_FILE,auto_users)
         await u.message.reply_text(
-            "🤖 *Auto Scan AKTIF v5!*\n\n"
+            "🤖 *Auto Scan AKTIF v5.1!*\n\n"
             "🇮🇩 *IDX Scanner:* aktif *09:00-15:15 WIB* (weekday)\n"
             "🇺🇸 *US Scanner:* aktif *20:30-03:00 WIB* (weekday)\n"
             "⏰ Volume spike alert setiap *15 menit*\n"
-            "🌊 Volume Momentum scan setiap *30 menit*\n"
+            "🌊 Volume Momentum scan setiap *30 menit* (TF 4H)\n"
             "🌅 Morning scan IDX setiap jam *09:00 WIB*\n"
             "🌆 *Evening summary* recap harian jam *16:05 WIB*\n"
-            "🕯 *Doji scan* tiap 1 jam saat market buka\n"
+            "🕯 *Doji scan* tiap 1 jam — TF 4H (hemat resource)\n"
             "🏆 *Ideal Screener:* open/close IDX&US + tiap 1jam + tiap 4jam\n"
             "⚡ *Parallel scan 10 thread — lebih cepat & akurat!*\n\n"
             "🏖 *Auto skip libur nasional IDX* (tidak spam)\n"
             "📊 *Score rendah = notif ringkas* (tidak kirim chart)\n"
+            "🔄 On/off doji: `/doji_auto on|off`\n"
+            "🔄 On/off volmom: `/volmom_auto on|off`\n"
             "⚠️ LOW LIQUIDITY = saham illiquid otomatis diberi tanda",
             parse_mode="Markdown")
     else:
         auto_users.pop(uid,None); save_json(AUTO_FILE,auto_users)
         await u.message.reply_text("⏹ Auto scan dimatikan.",parse_mode="Markdown")
+
+async def doji_auto_cmd(u, c):
+    """Command /doji_auto on|off — toggle doji auto scan"""
+    global doji_auto_enabled
+    args = c.args
+    if not args:
+        status = "✅ ON" if doji_auto_enabled else "❌ OFF"
+        await u.message.reply_text(f"🕯 Doji Auto Scan: *{status}*\nGunakan `/doji_auto on` atau `/doji_auto off`", parse_mode="Markdown")
+        return
+    if args[0].lower() == "on":
+        doji_auto_enabled = True
+        await u.message.reply_text("🕯 *Doji Auto Scan: ✅ AKTIF*\nBot akan kirim alert doji TF 4H tiap 1 jam saat IDX buka.", parse_mode="Markdown")
+    elif args[0].lower() == "off":
+        doji_auto_enabled = False
+        await u.message.reply_text("🕯 *Doji Auto Scan: ❌ MATI*\nBot tidak akan kirim alert doji otomatis. Scan manual tetap bisa via `/doji`.", parse_mode="Markdown")
+
+async def volmom_auto_cmd(u, c):
+    """Command /volmom_auto on|off — toggle volmom auto scan"""
+    global volmom_auto_enabled
+    args = c.args
+    if not args:
+        status = "✅ ON" if volmom_auto_enabled else "❌ OFF"
+        await u.message.reply_text(f"🌊 Volmom Auto Scan: *{status}*\nGunakan `/volmom_auto on` atau `/volmom_auto off`", parse_mode="Markdown")
+        return
+    if args[0].lower() == "on":
+        volmom_auto_enabled = True
+        await u.message.reply_text("🌊 *Volmom Auto Scan: ✅ AKTIF*\nBot akan kirim alert volume momentum tiap 30 menit saat IDX buka.", parse_mode="Markdown")
+    elif args[0].lower() == "off":
+        volmom_auto_enabled = False
+        await u.message.reply_text("🌊 *Volmom Auto Scan: ❌ MATI*\nBot tidak akan kirim alert volmom otomatis. Scan manual tetap bisa via `/volmom`.", parse_mode="Markdown")
 
 async def volume_cmd(u,c):
     m=await u.message.reply_text("💧 Mengambil data volume... (parallel ⚡)")
@@ -2105,15 +2148,17 @@ async def flip_pixel_scan(context):
         except Exception as e: log.error(f"flip alert uid {uid}: {e}")
 
 async def doji_auto_scan(context):
-    """Auto scan doji bullish reversal IDX tiap 1 jam saat market buka"""
-    if not is_idx_trading_day(): return  # skip weekend + libur nasional
+    """Auto scan doji bullish reversal IDX — hanya TF 4H (hemat resource)"""
+    if not is_idx_trading_day(): return
     if not auto_users: return
+    if not doji_auto_enabled: return   # bisa dimatikan via /doji_auto off
     if not is_idx_market_open(): return
     bot = context.bot
-    results = await asyncio.get_event_loop().run_in_executor(
-        None, doji_scan_all_tf, IDX_STOCKS)
-    total = sum(len(v) for v in results.values())
-    if total == 0: return
+    # ✅ Hanya scan 4H — hemat usage
+    results_4h = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: doji_scan_tf(IDX_STOCKS, "4H"))
+    results = {"4H": results_4h} if results_4h else {}
+    if not results or not results_4h: return
     msg = fmt_doji_msg(results, "IDX")
     for uid in auto_users:
         try:
@@ -2227,6 +2272,29 @@ async def evening_summary(context, force=False):
                         parse_mode="Markdown")
         except Exception as e: log.error(f"evening summary uid {uid}: {e}")
 
+def get_net_foreign(code):
+    """
+    Estimasi Net Buy/Sell Asing dari data Yahoo Finance.
+    Pakai perbandingan volume vs harga untuk mengestimasi tekanan beli/jual.
+    Catatan: Yahoo tidak punya data asing langsung — ini estimasi dari
+    price action + volume. Untuk data asing akurat perlu Stockbit/IDX API.
+    """
+    try:
+        ticker = get_ticker(code)
+        df = get_cached_data(ticker, "1d", "5d")
+        if df is None or df.empty or len(df) < 2: return None
+        close = df["Close"].squeeze()
+        vol   = df["Volume"].squeeze()
+        # Estimasi: candle hijau besar = net buy, candle merah besar = net sell
+        last_chg = float(close.iloc[-1] - close.iloc[-2])
+        last_vol  = float(vol.iloc[-1])
+        avg_vol   = float(vol.iloc[:-1].mean())
+        vr = last_vol / avg_vol if avg_vol > 0 else 1
+        est = last_chg * last_vol / 1e9  # estimasi dalam miliar
+        return {"est_net": est, "vr": vr, "last_chg": last_chg}
+    except:
+        return None
+
 async def morning_scan(context):
     if not is_idx_trading_day(): return  # skip weekend + libur nasional
     if not auto_users: return
@@ -2275,7 +2343,13 @@ async def morning_scan(context):
             for r in res_layak[:8]:
                 em="🟢" if r["chg"]>=0 else "🔴"
                 top=r["sigs"][0].split("-")[0].strip() if r["sigs"] else "—"
-                lines.append(f"{em} *{r['code']}* `{r['price']:,.0f}` Score:`{r['score']}/8` {top}")
+                # Net foreign estimasi
+                nf = get_net_foreign(r["code"])
+                nf_tag = ""
+                if nf:
+                    if nf["est_net"] > 0.5:   nf_tag = " 🟩NB"  # net buy asing est
+                    elif nf["est_net"] < -0.5: nf_tag = " 🟥NS"  # net sell asing est
+                lines.append(f"{em} *{r['code']}* `{r['price']:,.0f}` Score:`{r['score']}/8` {top}{nf_tag}")
             lines+=["━━━━━━━━━━━━━━━━━━━━",
                     "🤖 IDX scan aktif 09:00-15:15 WIB\n🇺🇸 US scan aktif 20:30-03:00 WIB"]
             await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
@@ -2802,7 +2876,10 @@ def run_bot():
           ("screener_ideal",screener_ideal_cmd),
           ("doji",doji_cmd),("volmom",volmom_cmd),
           ("pattern",pattern_cmd),
-          ("auto",auto_cmd),("volume",volume_cmd),("trend",trend_cmd)]
+          ("auto",auto_cmd),
+          ("doji_auto",doji_auto_cmd),
+          ("volmom_auto",volmom_auto_cmd),
+          ("volume",volume_cmd),("trend",trend_cmd)]
     for cmd,fn in cmds: tg.add_handler(CommandHandler(cmd,fn))
     jq=tg.job_queue
     jq.run_repeating(volume_spike_scan_idx,interval=900,first=120)
