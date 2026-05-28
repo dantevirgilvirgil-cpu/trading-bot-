@@ -91,7 +91,8 @@ def is_us_market_open():
     now=datetime.now(WIB)
     if now.weekday()>=5: return False
     t=now.time()
-    return t>=dtime(21,30) or t<=dtime(4,0)
+    # US market: 20:30-03:00 WIB (EDT, berlaku Apr-Nov)
+    return t>=dtime(20,30) or t<=dtime(3,0)
 
 def is_weekday():
     return datetime.now(WIB).weekday()<5
@@ -1498,7 +1499,7 @@ async def help_cmd(u,c):
         "`/volmom us` — Scan US stocks volume momentum\n"
         "🤖 Auto alert volmom tiap 30 menit saat IDX buka\n\n"
         "*Auto Scan:*\n"
-        "`/auto on` — Aktifkan (IDX 09:00-15:15 + US 21:30-04:00)\n"
+        "`/auto on` — Aktifkan (IDX 09:00-15:15 + US 20:30-03:00)\n"
         "`/auto off` — Matikan\n"
         "`/summary` — Summary IDX manual 📋\n"
         "`/summary us` — Summary 🇺🇸 US Stocks manual\n\n"
@@ -1876,7 +1877,7 @@ async def volmom_cmd(u, c):
 
 async def volmom_auto_scan(context):
     """Auto scan volume momentum tiap 30 menit saat IDX buka"""
-    if not is_weekday(): return
+    if not is_idx_trading_day(): return  # skip weekend + libur nasional
     if not auto_users: return
     if not is_idx_market_open(): return
     bot = context.bot
@@ -1911,7 +1912,7 @@ async def auto_cmd(u,c):
         await u.message.reply_text(
             "🤖 *Auto Scan AKTIF v5!*\n\n"
             "🇮🇩 *IDX Scanner:* aktif *09:00-15:15 WIB* (weekday)\n"
-            "🇺🇸 *US Scanner:* aktif *21:30-04:00 WIB* (weekday)\n"
+            "🇺🇸 *US Scanner:* aktif *20:30-03:00 WIB* (weekday)\n"
             "⏰ Volume spike alert setiap *15 menit*\n"
             "🌊 Volume Momentum scan setiap *30 menit*\n"
             "🌅 Morning scan IDX setiap jam *09:00 WIB*\n"
@@ -2012,7 +2013,7 @@ async def volume_spike_scan_idx(context):
         except Exception as e: log.error(f"IDX spike alert error uid {uid}: {e}")
 
 async def volume_spike_scan_us(context):
-    # ✅ FIX: Skip weekend — US market juga tutup Sabtu/Minggu
+    # US market tutup Sabtu/Minggu
     if not is_weekday(): return
     if not is_us_market_open(): return
     if not auto_users: return
@@ -2238,7 +2239,7 @@ async def morning_scan(context):
                 await bot.send_message(int(uid),
                     f"🏖 *BURSA IDX LIBUR HARI INI*\n"
                     f"📅 {now.strftime('%d %b %Y')} — Hari Libur Nasional\n"
-                    f"🇺🇸 US Market tetap buka malam ini jam 21:30 WIB",
+                    f"🇺🇸 US Market tetap buka malam ini jam 20:30 WIB",
                     parse_mode="Markdown")
             except Exception as e: log.error(f"morning scan holiday notif {uid}: {e}")
         return
@@ -2276,7 +2277,7 @@ async def morning_scan(context):
                 top=r["sigs"][0].split("-")[0].strip() if r["sigs"] else "—"
                 lines.append(f"{em} *{r['code']}* `{r['price']:,.0f}` Score:`{r['score']}/8` {top}")
             lines+=["━━━━━━━━━━━━━━━━━━━━",
-                    "🤖 IDX scan aktif 09:00-15:15 WIB\n🇺🇸 US scan aktif 21:30-04:00 WIB"]
+                    "🤖 IDX scan aktif 09:00-15:15 WIB\n🇺🇸 US scan aktif 20:30-03:00 WIB"]
             await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
             for r in res_layak[:3]:
                 buf,_=generate_chart(r["code"],"D")
@@ -2492,6 +2493,7 @@ async def pattern_cmd(u, c):
 async def breakout_alert_scan(context):
     """Auto scan breakout pattern tiap 30 menit."""
     if not is_weekday(): return
+    if is_idx_holiday(): return  # skip libur IDX
     if not (is_idx_market_open() or is_us_market_open()): return
     bot = context.bot
     stocks = IDX_STOCKS + US_STOCKS
@@ -2603,35 +2605,6 @@ async def pattern_cmd(u, c):
     except Exception as e:
         await m.edit_text("Error pattern scan: " + str(e))
 
-async def breakout_alert_scan(context):
-    if not is_weekday(): return
-    if not (is_idx_market_open() or is_us_market_open()): return
-    bot = context.bot
-    stocks = IDX_STOCKS + US_STOCKS
-    all_alerts = []
-    for code in stocks:
-        try:
-            alerts = await asyncio.get_event_loop().run_in_executor(
-                None, check_pattern_breakout, code, "D")
-            all_alerts.extend(alerts)
-        except: pass
-    if not all_alerts: return
-    for uid in list(auto_users.keys()):
-        try:
-            for alert in all_alerts[:5]:
-                await bot.send_message(int(uid), alert["msg"], parse_mode="Markdown")
-                buf,_=generate_chart(alert["code"],"D")
-                if buf:
-                    r2=get_signal(alert["code"],"D")
-                    if "error" not in r2:
-                        ts=calculate_tp_sl(r2)
-                        is_idr=alert["is_idr"]
-                        pf=lambda p,idr=is_idr:"Rp {:,.0f}".format(p) if idr else "${:,.2f}".format(p)
-                        await bot.send_photo(int(uid),photo=buf,
-                            caption="*" + alert["code"] + "* | `" + pf(alert["price"]) + "`\nTP1:`" + ts["tp1_str"] + "`(" + "{:+.1f}%".format(ts["tp1_pct"]) + ") TP2:`" + ts["tp2_str"] + "`(" + "{:+.1f}%".format(ts["tp2_pct"]) + ")\nSL1:`" + ts["sl1_str"] + "`(" + "{:+.1f}%".format(ts["sl1_pct"]) + ") R/R:`" + str(ts["rr"]) + "x`",
-                            parse_mode="Markdown")
-        except Exception as e:
-            log.error("Breakout alert uid " + str(uid) + ": " + str(e))
 
 # ══════════════════════════════════════════════════════════════
 # IDEAL SCREENER — Filter ketat: Score≥6, R/R≥1.5x, Uptrend,
@@ -2777,13 +2750,7 @@ async def ideal_screener_auto(context):
     - Tiap 4 jam (cross-session)
     - Market close IDX (15:20 WIB) & US (04:05 WIB)
     """
-    if not is_weekday(): return
-    if not auto_users: return
-    bot = context.bot
-
-    # Tentukan market aktif — IDX harus cek hari libur juga
-    idx_open = is_idx_market_open()  # sudah include holiday check
-    us_open  = is_us_market_open()
+    if not is_idx_trading_day() and not is_weekday(): return
     if not idx_open and not us_open: return
 
     tasks = []
@@ -2853,9 +2820,9 @@ def run_bot():
     # Market close IDX: 15:20 WIB
     jq.run_daily(ideal_screener_auto, time=dtime(15,20,tzinfo=WIB))
     # Market open US: 21:35 WIB
-    jq.run_daily(ideal_screener_auto, time=dtime(21,35,tzinfo=WIB))
+    jq.run_daily(ideal_screener_auto, time=dtime(20,35,tzinfo=WIB))
     # Market close US: 04:05 WIB
-    jq.run_daily(ideal_screener_auto, time=dtime(4,5,tzinfo=WIB))
+    jq.run_daily(ideal_screener_auto, time=dtime(3,5,tzinfo=WIB))
     # Tiap 1 jam saat market aktif (interval 3600 detik, first=1800)
     jq.run_repeating(ideal_screener_auto, interval=3600, first=1800)
     # Tiap 4 jam cross-session (interval 14400 detik, first=7200)
