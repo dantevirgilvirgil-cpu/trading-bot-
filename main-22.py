@@ -1014,12 +1014,13 @@ def generate_chart(code, tf="D", volume_spikes=None):
 
     # ══ LAYOUT ══
     fig=plt.figure(figsize=(14,11),facecolor=BG)
-    gs=GridSpec(7,1,figure=fig,height_ratios=[5,1.0,1.0,1.0,0.28,0.28,0.28],hspace=0.04)
+    gs=GridSpec(8,1,figure=fig,height_ratios=[5,1.0,1.0,1.0,0.6,0.28,0.28,0.28],hspace=0.04)
     ax1=fig.add_subplot(gs[0]); ax2=fig.add_subplot(gs[1])
     ax3=fig.add_subplot(gs[2]); ax4=fig.add_subplot(gs[3])
-    ax_p1=fig.add_subplot(gs[4]); ax_p2=fig.add_subplot(gs[5]); ax_p3=fig.add_subplot(gs[6])
+    ax_rs=fig.add_subplot(gs[4])  # RS vs Index panel
+    ax_p1=fig.add_subplot(gs[5]); ax_p2=fig.add_subplot(gs[6]); ax_p3=fig.add_subplot(gs[7])
 
-    for ax in [ax1,ax2,ax3,ax4]:
+    for ax in [ax1,ax2,ax3,ax4,ax_rs]:
         ax.set_facecolor(BG2)
         ax.tick_params(colors=TEXT2,labelsize=7)
         for s in ax.spines.values(): s.set_color(GRID)
@@ -1266,6 +1267,45 @@ def generate_chart(code, tf="D", volume_spikes=None):
     ax4.set_xticks(ticks); ax4.set_xticklabels(labels,fontsize=7,color=TEXT2)
 
     # ══════════════════════════════════
+    # ══ RS (RELATIVE STRENGTH) vs INDEX ══
+    # Hitung RS: return saham / return index (IHSG atau SPY)
+    try:
+        is_idr_chart = ticker.endswith(".JK")
+        idx_ticker   = "^JKSE" if is_idr_chart else "SPY"
+        period_map   = {"5M":"5d","15M":"5d","30M":"10d","1H":"30d",
+                        "4H":"60d","D":"1y","W":"3y","M":"5y"}
+        p2 = period_map.get(tf,"1y")
+        i2 = period_map.get(tf,"1y")
+        df_idx = yf.download(idx_ticker, period=p2,
+                             interval={"D":"1d","W":"1wk","M":"1mo"}.get(tf,"1d"),
+                             progress=False, auto_adjust=True)
+        if df_idx is not None and not df_idx.empty:
+            idx_close = df_idx["Close"].squeeze().values[-n:]
+            # RS ratio: close saham / close index (normalized)
+            if len(idx_close) >= n:
+                stock_ret = np.diff(closes, prepend=closes[0])
+                idx_ret   = np.diff(idx_close[-n:], prepend=idx_close[-n])
+                rs_vals   = stock_ret - idx_ret  # relative return per bar
+                # Plot RS bars
+                for i in idx:
+                    rs_v = rs_vals[i] if i < len(rs_vals) else 0
+                    col  = "#26a69a" if rs_v >= 0 else "#ef5350"
+                    ax_rs.bar(i, rs_v, color=col, width=0.85, zorder=3, alpha=0.85)
+                ax_rs.axhline(0, color=TEXT2, linewidth=0.6, alpha=0.5)
+                ax_rs.set_xlim(-0.5, n-0.5)
+                ax_rs.set_yticks([])
+                ax_rs.set_xticks([])
+                idx_label = "IHSG" if is_idr_chart else "SPY"
+                ax_rs.text(-0.5, 0, f"RS/{idx_label}", color=TEXT2,
+                           fontsize=5.5, va='center', ha='right', fontweight='bold')
+        else:
+            ax_rs.set_yticks([]); ax_rs.set_xticks([])
+            ax_rs.text(0.5, 0.5, "RS N/A", transform=ax_rs.transAxes,
+                      color=TEXT2, fontsize=6, ha='center', va='center')
+    except Exception as e:
+        ax_rs.set_yticks([]); ax_rs.set_xticks([])
+        log.debug(f"RS panel error: {e}")
+
     # T1MO PIXEL HEATMAP — 3 ROWS (WHITE)
     # ══════════════════════════════════
     PH=1.0
@@ -2565,20 +2605,30 @@ async def pattern_cmd(u, c):
         await m.edit_text(f"Error pattern scan: {e}")
 
 async def breakout_alert_scan(context):
-    """Auto scan breakout pattern tiap 30 menit."""
+    """Auto scan breakout pattern tiap 30 menit — pisah IDX vs US."""
     if not is_weekday(): return
-    if is_idx_holiday(): return  # skip libur IDX
-    if not (is_idx_market_open() or is_us_market_open()): return
+    if is_idx_holiday() and not is_us_market_open(): return
     bot = context.bot
-    stocks = IDX_STOCKS + US_STOCKS
+
+    stocks_to_scan = []
+    # IDX hanya scan saat market IDX buka
+    if is_idx_market_open():
+        stocks_to_scan += [(c, "IDX") for c in IDX_STOCKS]
+    # US hanya scan saat market US buka
+    if is_us_market_open():
+        stocks_to_scan += [(c, "US") for c in US_STOCKS[:20]]
+
+    if not stocks_to_scan: return
+
     all_alerts = []
-    for code in stocks:
+    for code, market in stocks_to_scan:
         try:
             alerts = await asyncio.get_event_loop().run_in_executor(
                 None, check_pattern_breakout, code, "D")
             all_alerts.extend(alerts)
         except: pass
     if not all_alerts: return
+
     for uid in list(auto_users.keys()):
         try:
             for alert in all_alerts[:5]:
@@ -2589,7 +2639,7 @@ async def breakout_alert_scan(context):
                     if "error" not in r2:
                         ts=calculate_tp_sl(r2)
                         is_idr=alert["is_idr"]
-                        pf=lambda p:f"Rp {p:,.0f}" if is_idr else f"${p:,.2f}"
+                        pf=lambda p,idr=is_idr:f"Rp {p:,.0f}" if idr else f"${p:,.2f}"
                         await bot.send_photo(int(uid),photo=buf,
                             caption=(f"📊 *{alert['code']}* | `{pf(alert['price'])}`\n"
                                      f"TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
