@@ -1270,14 +1270,11 @@ def generate_chart(code, tf="D", volume_spikes=None):
     # ══ RS (RELATIVE STRENGTH) vs Index ══
     try:
         is_idr_chart = ticker.endswith(".JK")
-        # Gunakan proxy yang lebih reliable dari Yahoo Finance
-        # ^JKSE sering gagal di cloud → pakai BBCA.JK sebagai proxy IDX
-        # SPY kadang timeout → pakai QQQ atau AAPL sebagai fallback
         if is_idr_chart:
-            idx_candidates = ["BBCA.JK", "BBRI.JK", "TLKM.JK"]
-            idx_label = "IDX"
+            idx_candidates = ["BBCA.JK", "BBRI.JK", "BMRI.JK", "TLKM.JK"]
+            idx_label = "BBCA"
         else:
-            idx_candidates = ["QQQ", "SPY", "AAPL"]
+            idx_candidates = ["QQQ", "MSFT", "AAPL", "NVDA"]
             idx_label = "QQQ"
 
         tf_interval = {"5M":"5m","15M":"15m","30M":"30m","1H":"60m",
@@ -1285,56 +1282,63 @@ def generate_chart(code, tf="D", volume_spikes=None):
         tf_period_short = {"5M":"5d","15M":"5d","30M":"10d","1H":"30d",
                            "4H":"60d","D":"1y","W":"3y","M":"5y"}.get(tf,"1y")
 
-        # Coba kandidat satu per satu sampai berhasil
+        # Skip kalau saham itu sendiri adalah kandidat index
+        filtered = [c for c in idx_candidates if c != ticker]
+
         df_idx = None
-        idx_sym = idx_candidates[0]
-        for cand in idx_candidates:
-            df_try = get_cached_data(cand, tf_interval, tf_period_short)
-            if df_try is not None and not df_try.empty and len(df_try) >= n:
-                df_idx = df_try
-                idx_sym = cand
-                idx_label = cand.replace(".JK","")
-                break
+        for cand in filtered:
+            try:
+                df_try = get_cached_data(cand, tf_interval, tf_period_short)
+                if df_try is not None and not df_try.empty and len(df_try) >= 20:
+                    df_idx = df_try
+                    idx_label = cand.replace(".JK","")
+                    break
+            except: continue
 
         rs_ok = False
-
         if df_idx is not None and not df_idx.empty:
-            log.debug(f"RS data ok: {idx_sym} rows={len(df_idx)}")
             ic_raw = df_idx["Close"].squeeze()
             if hasattr(ic_raw, 'values'): ic_raw = ic_raw.values
             ic_raw = np.array(ic_raw, dtype=float)
             ic_raw = ic_raw[~np.isnan(ic_raw)]
-            if len(ic_raw) >= n:
-                ic = ic_raw[-n:]
-                sc = np.array(closes[-n:], dtype=float)
-                if len(sc) == len(ic) and len(sc) > 1:
-                    s_norm  = sc / sc[0] * 100
-                    i_norm  = ic / ic[0] * 100
-                    rs_line = s_norm - i_norm
-                    for xi in range(len(rs_line)):
-                        v   = float(rs_line[xi])
-                        col = "#26a69a" if v >= 0 else "#ef5350"
-                        ax_rs.bar(xi, v, color=col, width=0.85, zorder=3, alpha=0.9)
-                    ax_rs.axhline(0, color="#90a4ae", linewidth=0.8, alpha=0.7)
-                    ax_rs.set_xlim(-0.5, n-0.5)
-                    ax_rs.set_yticks([]); ax_rs.set_xticks([])
-                    last_v    = float(rs_line[-1])
-                    rs_color  = "#26a69a" if last_v >= 0 else "#ef5350"
-                    ax_rs.text(0.01, 0.5, f"RS/{idx_label}: {last_v:+.1f}",
-                               color=rs_color, fontsize=6, va='center',
-                               fontweight='bold', transform=ax_rs.transAxes)
-                    rs_ok = True
+
+            sc_raw = np.array(closes, dtype=float)
+            sc_raw = sc_raw[~np.isnan(sc_raw)]
+
+            # Align ke panjang minimum
+            min_len = min(len(ic_raw), len(sc_raw), n)
+            if min_len >= 5:
+                ic = ic_raw[-min_len:]
+                sc = sc_raw[-min_len:]
+                # Normalized cumulative RS vs index
+                s_norm  = sc / sc[0] * 100
+                i_norm  = ic / ic[0] * 100
+                rs_line = s_norm - i_norm
+                # Plot bars
+                for xi in range(len(rs_line)):
+                    v   = float(rs_line[xi])
+                    col = "#26a69a" if v >= 0 else "#ef5350"
+                    ax_rs.bar(xi, v, color=col, width=0.85, zorder=3, alpha=0.9)
+                ax_rs.axhline(0, color="#90a4ae", linewidth=0.8, alpha=0.7)
+                ax_rs.set_xlim(-0.5, min_len-0.5)
+                ax_rs.set_yticks([]); ax_rs.set_xticks([])
+                last_v   = float(rs_line[-1])
+                rs_color = "#26a69a" if last_v >= 0 else "#ef5350"
+                ax_rs.text(0.01, 0.5, f"RS/{idx_label}: {last_v:+.1f}",
+                           color=rs_color, fontsize=6, va='center',
+                           fontweight='bold', transform=ax_rs.transAxes)
+                rs_ok = True
 
         if not rs_ok:
             ax_rs.set_yticks([]); ax_rs.set_xticks([])
             ax_rs.set_facecolor(BG2)
-            ax_rs.text(0.01, 0.5, f"RS/{idx_label}: N/A",
+            ax_rs.text(0.01, 0.5, f"RS/{idx_label}: —",
                       transform=ax_rs.transAxes, color=TEXT2, fontsize=6, va='center')
     except Exception as e:
         try:
             ax_rs.set_yticks([]); ax_rs.set_xticks([])
             ax_rs.set_facecolor(BG2)
-            ax_rs.text(0.01, 0.5, f"RS: N/A",
+            ax_rs.text(0.01, 0.5, "RS: —",
                       transform=ax_rs.transAxes, color=TEXT2, fontsize=6, va='center')
         except: pass
         log.warning(f"RS panel error: {e}")
