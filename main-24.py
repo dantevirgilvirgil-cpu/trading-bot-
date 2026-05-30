@@ -1277,11 +1277,14 @@ def generate_chart(code, tf="D", volume_spikes=None):
         tf_period   = {"5M":"5d","15M":"5d","30M":"10d","1H":"60d",
                        "4H":"60d","D":"2y","W":"5y","M":"10y"}.get(tf,"2y")
 
-        # Pakai get_cached_data — sama fungsi yang dipakai saham lain
-        df_idx = get_cached_data(idx_sym, tf_interval, tf_period)
+        # Pakai period pendek agar cepat, cukup untuk n candles
+        tf_period_short = {"5M":"5d","15M":"5d","30M":"10d","1H":"30d",
+                           "4H":"60d","D":"1y","W":"3y","M":"5y"}.get(tf,"1y")
+        df_idx = get_cached_data(idx_sym, tf_interval, tf_period_short)
         rs_ok = False
 
         if df_idx is not None and not df_idx.empty:
+            log.debug(f"RS data ok: {idx_sym} rows={len(df_idx)}")
             ic_raw = df_idx["Close"].squeeze()
             if hasattr(ic_raw, 'values'): ic_raw = ic_raw.values
             ic_raw = np.array(ic_raw, dtype=float)
@@ -1319,7 +1322,7 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax_rs.text(0.01, 0.5, f"RS: N/A",
                       transform=ax_rs.transAxes, color=TEXT2, fontsize=6, va='center')
         except: pass
-        log.debug(f"RS panel error: {e}")
+        log.warning(f"RS panel error: {e}")
 
     # T1MO PIXEL HEATMAP — 3 ROWS (WHITE)
     # ══════════════════════════════════
