@@ -1270,17 +1270,32 @@ def generate_chart(code, tf="D", volume_spikes=None):
     # ══ RS (RELATIVE STRENGTH) vs Index ══
     try:
         is_idr_chart = ticker.endswith(".JK")
-        idx_sym   = "^JKSE" if is_idr_chart else "SPY"
-        idx_label = "IHSG"  if is_idr_chart else "SPY"
+        # Gunakan proxy yang lebih reliable dari Yahoo Finance
+        # ^JKSE sering gagal di cloud → pakai BBCA.JK sebagai proxy IDX
+        # SPY kadang timeout → pakai QQQ atau AAPL sebagai fallback
+        if is_idr_chart:
+            idx_candidates = ["BBCA.JK", "BBRI.JK", "TLKM.JK"]
+            idx_label = "IDX"
+        else:
+            idx_candidates = ["QQQ", "SPY", "AAPL"]
+            idx_label = "QQQ"
+
         tf_interval = {"5M":"5m","15M":"15m","30M":"30m","1H":"60m",
                        "4H":"60m","D":"1d","W":"1wk","M":"1mo"}.get(tf,"1d")
-        tf_period   = {"5M":"5d","15M":"5d","30M":"10d","1H":"60d",
-                       "4H":"60d","D":"2y","W":"5y","M":"10y"}.get(tf,"2y")
-
-        # Pakai period pendek agar cepat, cukup untuk n candles
         tf_period_short = {"5M":"5d","15M":"5d","30M":"10d","1H":"30d",
                            "4H":"60d","D":"1y","W":"3y","M":"5y"}.get(tf,"1y")
-        df_idx = get_cached_data(idx_sym, tf_interval, tf_period_short)
+
+        # Coba kandidat satu per satu sampai berhasil
+        df_idx = None
+        idx_sym = idx_candidates[0]
+        for cand in idx_candidates:
+            df_try = get_cached_data(cand, tf_interval, tf_period_short)
+            if df_try is not None and not df_try.empty and len(df_try) >= n:
+                df_idx = df_try
+                idx_sym = cand
+                idx_label = cand.replace(".JK","")
+                break
+
         rs_ok = False
 
         if df_idx is not None and not df_idx.empty:
