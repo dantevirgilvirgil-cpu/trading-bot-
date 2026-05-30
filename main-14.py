@@ -1277,45 +1277,31 @@ def generate_chart(code, tf="D", volume_spikes=None):
         tf_period   = {"5M":"5d","15M":"5d","30M":"10d","1H":"60d",
                        "4H":"60d","D":"2y","W":"5y","M":"10y"}.get(tf,"2y")
 
-        # Download dengan retry
-        df_idx = None
-        for attempt in range(3):
-            try:
-                df_idx = yf.download(idx_sym, period=tf_period,
-                                     interval=tf_interval,
-                                     progress=False, auto_adjust=True,
-                                     timeout=10)
-                if df_idx is not None and not df_idx.empty:
-                    break
-            except: pass
-
+        # Pakai get_cached_data — sama fungsi yang dipakai saham lain
+        df_idx = get_cached_data(idx_sym, tf_interval, tf_period)
         rs_ok = False
+
         if df_idx is not None and not df_idx.empty:
             ic_raw = df_idx["Close"].squeeze()
-            if hasattr(ic_raw, 'values'):
-                ic_raw = ic_raw.values
+            if hasattr(ic_raw, 'values'): ic_raw = ic_raw.values
             ic_raw = np.array(ic_raw, dtype=float)
             ic_raw = ic_raw[~np.isnan(ic_raw)]
-
             if len(ic_raw) >= n:
                 ic = ic_raw[-n:]
                 sc = np.array(closes[-n:], dtype=float)
                 if len(sc) == len(ic) and len(sc) > 1:
-                    # Normalized cumulative RS
-                    s_norm = sc / sc[0] * 100
-                    i_norm = ic / ic[0] * 100
-                    rs_line = s_norm - i_norm  # positive = outperform
-                    # Plot sebagai bar
+                    s_norm  = sc / sc[0] * 100
+                    i_norm  = ic / ic[0] * 100
+                    rs_line = s_norm - i_norm
                     for xi in range(len(rs_line)):
-                        v = float(rs_line[xi])
+                        v   = float(rs_line[xi])
                         col = "#26a69a" if v >= 0 else "#ef5350"
                         ax_rs.bar(xi, v, color=col, width=0.85, zorder=3, alpha=0.9)
                     ax_rs.axhline(0, color="#90a4ae", linewidth=0.8, alpha=0.7)
                     ax_rs.set_xlim(-0.5, n-0.5)
                     ax_rs.set_yticks([]); ax_rs.set_xticks([])
-                    # Label
-                    last_v = float(rs_line[-1])
-                    rs_color = "#26a69a" if last_v >= 0 else "#ef5350"
+                    last_v    = float(rs_line[-1])
+                    rs_color  = "#26a69a" if last_v >= 0 else "#ef5350"
                     ax_rs.text(0.01, 0.5, f"RS/{idx_label}: {last_v:+.1f}",
                                color=rs_color, fontsize=6, va='center',
                                fontweight='bold', transform=ax_rs.transAxes)
@@ -1324,14 +1310,15 @@ def generate_chart(code, tf="D", volume_spikes=None):
         if not rs_ok:
             ax_rs.set_yticks([]); ax_rs.set_xticks([])
             ax_rs.set_facecolor(BG2)
-            ax_rs.text(0.01, 0.5, f"RS/{idx_label}: loading...",
-                      transform=ax_rs.transAxes, color=TEXT2,
-                      fontsize=6, va='center')
+            ax_rs.text(0.01, 0.5, f"RS/{idx_label}: N/A",
+                      transform=ax_rs.transAxes, color=TEXT2, fontsize=6, va='center')
     except Exception as e:
-        ax_rs.set_yticks([]); ax_rs.set_xticks([])
-        ax_rs.set_facecolor(BG2)
-        ax_rs.text(0.01, 0.5, "RS: err", transform=ax_rs.transAxes,
-                  color=TEXT2, fontsize=6, va='center')
+        try:
+            ax_rs.set_yticks([]); ax_rs.set_xticks([])
+            ax_rs.set_facecolor(BG2)
+            ax_rs.text(0.01, 0.5, f"RS: N/A",
+                      transform=ax_rs.transAxes, color=TEXT2, fontsize=6, va='center')
+        except: pass
         log.debug(f"RS panel error: {e}")
 
     # T1MO PIXEL HEATMAP — 3 ROWS (WHITE)
