@@ -1268,53 +1268,67 @@ def generate_chart(code, tf="D", volume_spikes=None):
 
     # ══════════════════════════════════
     # ══ RS (RELATIVE STRENGTH) vs Index ══
+    # Strategi: pakai data yg sudah ada di cache dari get_signal()
+    # Tidak fetch data baru — hindari timeout Railway
     try:
         is_idr_chart = ticker.endswith(".JK")
         if is_idr_chart:
-            idx_candidates = ["BBCA.JK", "BBRI.JK", "BMRI.JK", "TLKM.JK"]
+            idx_cands = ["BBCA.JK","BBRI.JK","BMRI.JK","TLKM.JK","ASII.JK"]
             idx_label = "BBCA"
         else:
-            idx_candidates = ["QQQ", "MSFT", "AAPL", "NVDA"]
+            idx_cands = ["QQQ","MSFT","AAPL","AMZN","GOOGL"]
             idx_label = "QQQ"
 
-        tf_interval = {"5M":"5m","15M":"15m","30M":"30m","1H":"60m",
-                       "4H":"60m","D":"1d","W":"1wk","M":"1mo"}.get(tf,"1d")
-        tf_period_short = {"5M":"5d","15M":"5d","30M":"10d","1H":"30d",
-                           "4H":"60d","D":"1y","W":"3y","M":"5y"}.get(tf,"1y")
+        # Filter saham itu sendiri dari kandidat
+        idx_cands = [c for c in idx_cands if c.upper() != ticker.upper()
+                     and c.replace(".JK","").upper() != ticker.replace(".JK","").upper()]
 
-        # Skip kalau saham itu sendiri adalah kandidat index
-        filtered = [c for c in idx_candidates if c != ticker]
+        tf_iv  = {"5M":"5m","15M":"15m","30M":"30m","1H":"60m",
+                  "4H":"60m","D":"1d","W":"1wk","M":"1mo"}.get(tf,"1d")
+        tf_per = {"5M":"5d","15M":"5d","30M":"10d","1H":"30d",
+                  "4H":"60d","D":"1y","W":"2y","M":"5y"}.get(tf,"1y")
 
+        # Ambil dari cache — tidak trigger download baru
         df_idx = None
-        for cand in filtered:
-            try:
-                df_try = get_cached_data(cand, tf_interval, tf_period_short)
+        for cand in idx_cands:
+            key = f"{cand}_{tf_iv}_{tf_per}"
+            if key in _data_cache:
+                _, df_try = _data_cache[key]
                 if df_try is not None and not df_try.empty and len(df_try) >= 20:
                     df_idx = df_try
                     idx_label = cand.replace(".JK","")
                     break
-            except: continue
+
+        # Kalau tidak ada di cache, coba download 1 kandidat saja (cepat)
+        if df_idx is None:
+            for cand in idx_cands[:2]:
+                try:
+                    df_try = yf.download(cand, period=tf_per, interval=tf_iv,
+                                         progress=False, auto_adjust=True,
+                                         timeout=8)
+                    if df_try is not None and not df_try.empty and len(df_try) >= 20:
+                        _data_cache[f"{cand}_{tf_iv}_{tf_per}"] = (
+                            datetime.now().timestamp(), df_try)
+                        df_idx = df_try
+                        idx_label = cand.replace(".JK","")
+                        break
+                except: continue
 
         rs_ok = False
         if df_idx is not None and not df_idx.empty:
             ic_raw = df_idx["Close"].squeeze()
-            if hasattr(ic_raw, 'values'): ic_raw = ic_raw.values
+            if hasattr(ic_raw,'values'): ic_raw = ic_raw.values
             ic_raw = np.array(ic_raw, dtype=float)
             ic_raw = ic_raw[~np.isnan(ic_raw)]
-
             sc_raw = np.array(closes, dtype=float)
             sc_raw = sc_raw[~np.isnan(sc_raw)]
-
-            # Align ke panjang minimum
             min_len = min(len(ic_raw), len(sc_raw), n)
             if min_len >= 5:
                 ic = ic_raw[-min_len:]
                 sc = sc_raw[-min_len:]
-                # Normalized cumulative RS vs index
                 s_norm  = sc / sc[0] * 100
                 i_norm  = ic / ic[0] * 100
                 rs_line = s_norm - i_norm
-                # Plot bars
                 for xi in range(len(rs_line)):
                     v   = float(rs_line[xi])
                     col = "#26a69a" if v >= 0 else "#ef5350"
