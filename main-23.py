@@ -1274,40 +1274,63 @@ def generate_chart(code, tf="D", volume_spikes=None):
         idx_label = "IHSG"  if is_idr_chart else "SPY"
         tf_interval = {"5M":"5m","15M":"15m","30M":"30m","1H":"60m",
                        "4H":"60m","D":"1d","W":"1wk","M":"1mo"}.get(tf,"1d")
-        tf_period   = {"5M":"5d","15M":"5d","30M":"10d","1H":"30d",
-                       "4H":"60d","D":"1y","W":"3y","M":"5y"}.get(tf,"1y")
-        df_idx = yf.download(idx_sym, period=tf_period, interval=tf_interval,
-                             progress=False, auto_adjust=True)
+        tf_period   = {"5M":"5d","15M":"5d","30M":"10d","1H":"60d",
+                       "4H":"60d","D":"2y","W":"5y","M":"10y"}.get(tf,"2y")
+
+        # Download dengan retry
+        df_idx = None
+        for attempt in range(3):
+            try:
+                df_idx = yf.download(idx_sym, period=tf_period,
+                                     interval=tf_interval,
+                                     progress=False, auto_adjust=True,
+                                     timeout=10)
+                if df_idx is not None and not df_idx.empty:
+                    break
+            except: pass
+
         rs_ok = False
         if df_idx is not None and not df_idx.empty:
-            ic = df_idx["Close"].squeeze().values
-            if len(ic) >= n:
-                ic = ic[-n:]
-                s_ret = np.diff(np.array(closes), prepend=closes[0])
-                i_ret = np.diff(ic, prepend=ic[0])
-                # Normalize: scale index return to same magnitude as stock
-                s_abs = np.mean(np.abs(s_ret[s_ret!=0])) if np.any(s_ret!=0) else 1
-                i_abs = np.mean(np.abs(i_ret[i_ret!=0])) if np.any(i_ret!=0) else 1
-                scale = s_abs / (i_abs + 1e-9)
-                rs_v  = s_ret - i_ret * scale
-                for i in idx:
-                    v = float(rs_v[i]) if i < len(rs_v) else 0
-                    col = "#26a69a" if v >= 0 else "#ef5350"
-                    ax_rs.bar(i, v, color=col, width=0.85, zorder=3, alpha=0.9)
-                ax_rs.axhline(0, color="#90a4ae", linewidth=0.7, alpha=0.6)
-                ax_rs.set_xlim(-0.5, n-0.5)
-                ax_rs.set_yticks([]); ax_rs.set_xticks([])
-                ax_rs.text(0, 0, f"RS/{idx_label}", color=TEXT2,
-                           fontsize=5.5, va='center', ha='left', fontweight='bold',
-                           transform=ax_rs.transAxes)
-                rs_ok = True
+            ic_raw = df_idx["Close"].squeeze()
+            if hasattr(ic_raw, 'values'):
+                ic_raw = ic_raw.values
+            ic_raw = np.array(ic_raw, dtype=float)
+            ic_raw = ic_raw[~np.isnan(ic_raw)]
+
+            if len(ic_raw) >= n:
+                ic = ic_raw[-n:]
+                sc = np.array(closes[-n:], dtype=float)
+                if len(sc) == len(ic) and len(sc) > 1:
+                    # Normalized cumulative RS
+                    s_norm = sc / sc[0] * 100
+                    i_norm = ic / ic[0] * 100
+                    rs_line = s_norm - i_norm  # positive = outperform
+                    # Plot sebagai bar
+                    for xi in range(len(rs_line)):
+                        v = float(rs_line[xi])
+                        col = "#26a69a" if v >= 0 else "#ef5350"
+                        ax_rs.bar(xi, v, color=col, width=0.85, zorder=3, alpha=0.9)
+                    ax_rs.axhline(0, color="#90a4ae", linewidth=0.8, alpha=0.7)
+                    ax_rs.set_xlim(-0.5, n-0.5)
+                    ax_rs.set_yticks([]); ax_rs.set_xticks([])
+                    # Label
+                    last_v = float(rs_line[-1])
+                    rs_color = "#26a69a" if last_v >= 0 else "#ef5350"
+                    ax_rs.text(0.01, 0.5, f"RS/{idx_label}: {last_v:+.1f}",
+                               color=rs_color, fontsize=6, va='center',
+                               fontweight='bold', transform=ax_rs.transAxes)
+                    rs_ok = True
+
         if not rs_ok:
             ax_rs.set_yticks([]); ax_rs.set_xticks([])
-            ax_rs.text(0.02, 0.5, f"RS/{idx_label} —",
-                      transform=ax_rs.transAxes, color=TEXT2, fontsize=6, va='center')
+            ax_rs.set_facecolor(BG2)
+            ax_rs.text(0.01, 0.5, f"RS/{idx_label}: loading...",
+                      transform=ax_rs.transAxes, color=TEXT2,
+                      fontsize=6, va='center')
     except Exception as e:
         ax_rs.set_yticks([]); ax_rs.set_xticks([])
-        ax_rs.text(0.02, 0.5, "RS —", transform=ax_rs.transAxes,
+        ax_rs.set_facecolor(BG2)
+        ax_rs.text(0.01, 0.5, "RS: err", transform=ax_rs.transAxes,
                   color=TEXT2, fontsize=6, va='center')
         log.debug(f"RS panel error: {e}")
 
