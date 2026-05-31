@@ -1323,11 +1323,11 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ic_raw = ic_raw[~np.isnan(ic_raw)]
             sc_raw = np.array(closes, dtype=float)
             sc_raw = sc_raw[~np.isnan(sc_raw)]
-            min_len = min(len(ic_raw), len(sc_raw))
-            min_len = max(min_len, 0)  # pastikan tidak negatif
-            if min_len >= 5:
-                ic = ic_raw[-min_len:]
-                sc = sc_raw[-min_len:]
+            # ✅ FIX: trim keduanya ke n candle dari ujung kanan supaya timeframe sejajar
+            use_n = min(len(ic_raw), len(sc_raw), n)
+            if use_n >= 5:
+                ic = ic_raw[-use_n:]
+                sc = sc_raw[-use_n:]
                 s_norm  = sc / sc[0] * 100
                 i_norm  = ic / ic[0] * 100
                 rs_line = s_norm - i_norm
@@ -1336,7 +1336,7 @@ def generate_chart(code, tf="D", volume_spikes=None):
                     col = "#26a69a" if v >= 0 else "#ef5350"
                     ax_rs.bar(xi, v, color=col, width=0.85, zorder=3, alpha=0.9)
                 ax_rs.axhline(0, color="#90a4ae", linewidth=0.8, alpha=0.7)
-                ax_rs.set_xlim(-0.5, min_len-0.5)
+                ax_rs.set_xlim(-0.5, use_n-0.5)
                 ax_rs.set_yticks([]); ax_rs.set_xticks([])
                 last_v   = float(rs_line[-1])
                 rs_color = "#26a69a" if last_v >= 0 else "#ef5350"
