@@ -1557,6 +1557,9 @@ async def start(u,c):
         "🌊 *Volume Momentum (BARU):*\n"
         "`/volmom` — IDX: volume naik terus 5M→15M→30M→1H\n"
         "`/volmom us` — US stocks volume momentum\n\n"
+        "🟢 *First Green Screener (BARU):*\n"
+        "`/firstgreen` — IDX: candle hijau pertama setelah ≥2 merah (30M/1H/4H/D)\n"
+        "`/firstgreen us` — US stocks first green\n\n"
         "🤖 *Auto Scan:*\n"
         "`/auto on` — Aktifkan auto scan\n"
         "`/auto off` — Matikan auto scan\n\n"
@@ -1596,10 +1599,14 @@ async def help_cmd(u,c):
         "`/doji` — Scan doji IDX (manual: 1H+4H+D) / auto: TF 4H\n"
         "`/doji us` — Scan doji US stocks\n"
         "🤖 Auto alert doji TF 4H tiap 1 jam | /doji_auto on|off\n\n"
-        "🌊 *Volume Momentum (BARU):*\n"
+        "🌊 *Volume Momentum:*\n"
         "`/volmom` — Scan IDX volume naik konsisten 5M→15M→30M→1H\n"
         "`/volmom us` — Scan US stocks volume momentum\n"
         "🤖 Auto alert volmom tiap 30 menit saat IDX buka\n\n"
+        "🟢 *First Green Screener (BARU):*\n"
+        "`/firstgreen` — IDX: candle hijau pertama setelah ≥2 merah\n"
+        "`/firstgreen us` — US stocks first green\n"
+        "📌 Multi-TF: 30M | 1H | 4H | D + filter RSI & volume\n\n"
         "*Auto Scan:*\n"
         "`/auto on` — Aktifkan (IDX 09:00-15:15 + US 20:30-03:00)\n"
         "`/auto off` — Matikan\n"
@@ -2968,6 +2975,224 @@ async def ideal_screener_auto(context):
             log.error(f"ideal screener auto {label}: {e}")
 
 
+# ══════════════════════════════════════════════════════════════
+# FIRST GREEN SCREENER
+# Deteksi saham yang candle terakhir PERTAMA KALI HIJAU
+# setelah sebelumnya minimal 2 candle merah berturut-turut
+# Multi-TF: 30M, 1H, 4H, D
+# ══════════════════════════════════════════════════════════════
+
+def detect_first_green(code, tf="D"):
+    """
+    Deteksi 'First Green' — candle terakhir hijau setelah ≥2 candle merah sebelumnya.
+    Tambah filter: RSI tidak overbought, volume konfirmasi, harga di atas MA50 (opsional).
+    Return dict info atau None.
+    """
+    try:
+        r = get_signal(code, tf)
+        if "error" in r: return None
+        df = r["df"]
+        if len(df) < 6: return None
+
+        opens  = df["Open"].squeeze().values
+        closes = df["Close"].squeeze().values
+        vols   = df["Volume"].squeeze().values
+
+        # Candle terakhir harus HIJAU (close > open)
+        if closes[-1] <= opens[-1]: return None
+
+        # Minimal 2 candle sebelumnya MERAH berturut-turut
+        red_count = 0
+        for i in range(-2, -6, -1):
+            if closes[i] < opens[i]:
+                red_count += 1
+            else:
+                break
+        if red_count < 2: return None
+
+        # Filter: RSI tidak overbought (< 75)
+        rsi_val = r["rsi"]
+        if rsi_val >= 75: return None
+
+        # Volume konfirmasi: candle hijau ini volumenya >= 1.1x rata-rata
+        avg_vol = float(np.mean(vols[-10:-1])) if len(vols) >= 10 else float(np.mean(vols[:-1]))
+        last_vol = float(vols[-1])
+        vol_ratio = last_vol / avg_vol if avg_vol > 0 else 1.0
+
+        # Hitung body size candle hijau terakhir (%)
+        body_pct = (closes[-1] - opens[-1]) / opens[-1] * 100
+
+        price   = r["price"]
+        chg     = r["chg"]
+        e20     = r["e20"]
+        e50     = r["e50"]
+        ticker  = r["ticker"]
+        is_idr  = ticker.endswith(".JK")
+        liquid  = r.get("liquid", True)
+
+        # Score
+        score = 0
+        factors = []
+
+        # Jumlah candle merah sebelumnya (makin banyak makin bagus)
+        if red_count >= 4:   score += 3; factors.append(f"🔴×{red_count} reversal kuat")
+        elif red_count >= 3: score += 2; factors.append(f"🔴×{red_count} reversal")
+        else:                score += 1; factors.append(f"🔴×{red_count} first green")
+
+        # Volume konfirmasi
+        if vol_ratio >= 2.0:   score += 3; factors.append(f"🌊 Vol {vol_ratio:.1f}x")
+        elif vol_ratio >= 1.5: score += 2; factors.append(f"📈 Vol {vol_ratio:.1f}x")
+        elif vol_ratio >= 1.1: score += 1; factors.append(f"📊 Vol {vol_ratio:.1f}x")
+        else:                  factors.append(f"Vol {vol_ratio:.1f}x (lemah)")
+
+        # RSI zona sehat (30-60 = ideal entry)
+        if 30 <= rsi_val <= 60:  score += 2; factors.append(f"RSI sehat ({rsi_val:.0f})")
+        elif rsi_val < 30:       score += 2; factors.append(f"RSI oversold ({rsi_val:.0f})")
+        elif rsi_val <= 70:      score += 1; factors.append(f"RSI ok ({rsi_val:.0f})")
+
+        # Harga vs MA50
+        if price > e50:   score += 1; factors.append("Di atas MA50")
+        elif price > e20: factors.append("Di atas MA20")
+
+        # Stoch oversold
+        stoch_val = r["stoch"]
+        if stoch_val < 25:   score += 2; factors.append(f"Stoch OS ({stoch_val:.0f})")
+        elif stoch_val < 40: score += 1; factors.append(f"Stoch rendah ({stoch_val:.0f})")
+
+        # Body candle hijau besar = sinyal kuat
+        if body_pct >= 2.0:   score += 1; factors.append(f"Body besar {body_pct:.1f}%")
+        elif body_pct >= 1.0: factors.append(f"Body {body_pct:.1f}%")
+
+        if score < 3: return None  # minimal score 3
+
+        return {
+            "code":      code,
+            "tf":        tf,
+            "ticker":    ticker,
+            "price":     price,
+            "chg":       chg,
+            "rsi":       rsi_val,
+            "stoch":     stoch_val,
+            "vol_ratio": vol_ratio,
+            "red_count": red_count,
+            "body_pct":  body_pct,
+            "score":     score,
+            "factors":   factors,
+            "e20":       e20,
+            "e50":       e50,
+            "liquid":    liquid,
+        }
+    except Exception as e:
+        log.warning(f"first_green {code} {tf}: {e}")
+        return None
+
+
+def first_green_scan_tf(stock_list, tf, max_workers=10):
+    """Scan first green untuk satu TF secara paralel"""
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(detect_first_green, code, tf): code for code in stock_list}
+        for future in as_completed(futures):
+            try:
+                res = future.result(timeout=20)
+                if res: results.append(res)
+            except Exception as e:
+                log.warning(f"first_green scan error: {e}")
+    results.sort(key=lambda x: (-x["score"], -x["vol_ratio"]))
+    return results
+
+
+def first_green_scan_multitf(stock_list):
+    """Scan first green di 4 TF sekaligus: 30M, 1H, 4H, D"""
+    all_results = {}
+    for tf in ["30M", "1H", "4H", "D"]:
+        all_results[tf] = first_green_scan_tf(stock_list, tf)
+    return all_results
+
+
+def fmt_first_green_msg(results_by_tf, market_name="IDX"):
+    """Format pesan Telegram untuk first green screener"""
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    flag = "🇺🇸" if market_name == "US" else "🇮🇩"
+    lines = [
+        f"🟢 *FIRST GREEN SCREENER {flag} {market_name}*",
+        f"🕐 {now_str}",
+        f"📌 Candle hijau pertama setelah ≥2 candle merah",
+        "━━━━━━━━━━━━━━━━━━━━"
+    ]
+    total_found = 0
+    tf_labels = {"30M": "30 MENIT", "1H": "1 JAM", "4H": "4 JAM", "D": "HARIAN"}
+    for tf in ["30M", "1H", "4H", "D"]:
+        hits = results_by_tf.get(tf, [])
+        if not hits: continue
+        lines.append(f"\n⏱ *TF {tf_labels[tf]}:* ({len(hits)} saham)")
+        for h in hits[:5]:
+            is_idr = h["ticker"].endswith(".JK")
+            px = f"Rp {h['price']:,.0f}" if is_idr else f"${h['price']:,.2f}"
+            liq = " ⚠️" if not h["liquid"] else ""
+            vol_tag = "🌊" if h["vol_ratio"] >= 2 else "📈" if h["vol_ratio"] >= 1.5 else ""
+            fac = " | ".join(h["factors"][:2])
+            lines.append(
+                f"  🟢 *{h['code']}* `{px}` {h['chg']:+.2f}%{liq} {vol_tag}\n"
+                f"    ↳ 🔴×{h['red_count']} | Score:`{h['score']}` | {fac}"
+            )
+        total_found += len(hits)
+    if total_found == 0:
+        lines.append("❌ Tidak ada first green terdeteksi saat ini.")
+        lines.append("💡 Coba lagi saat market aktif atau ganti TF")
+    lines += [
+        "━━━━━━━━━━━━━━━━━━━━",
+        "💡 First Green = potensi reversal naik jangka pendek",
+        "⚠️ Konfirmasi volume & candle berikutnya sebelum entry!",
+        f"⏱ {now_str}"
+    ]
+    return "\n".join(lines)
+
+
+async def firstgreen_cmd(u, c):
+    """Command /firstgreen [us] — scan saham first green multi-TF"""
+    args   = c.args
+    market = "us" if args and args[0].lower() == "us" else "idx"
+    flag   = "🇺🇸" if market == "us" else "🇮🇩"
+    label  = "US" if market == "us" else "IDX"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+
+    m = await u.message.reply_text(
+        f"🟢 Scanning *First Green {flag} {label}*...\n"
+        f"TF: 30M | 1H | 4H | D\n"
+        f"⏳ Harap tunggu ~30 detik...",
+        parse_mode="Markdown")
+    try:
+        results = await asyncio.get_event_loop().run_in_executor(
+            None, first_green_scan_multitf, stocks)
+        msg = fmt_first_green_msg(results, label)
+        await m.edit_text(msg, parse_mode="Markdown")
+
+        # Kirim chart saham first green terbaik (prioritas D → 4H → 1H → 30M)
+        best = None; best_tf = "D"
+        for tf in ["D", "4H", "1H", "30M"]:
+            hits = results.get(tf, [])
+            liquid_hits = [h for h in hits if h["liquid"]]
+            if liquid_hits:   best = liquid_hits[0]; best_tf = tf; break
+            elif hits:        best = hits[0];        best_tf = tf; break
+        if best:
+            buf, _ = generate_chart(best["code"], best_tf)
+            if buf:
+                is_idr = best["ticker"].endswith(".JK")
+                px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+                await u.message.reply_photo(
+                    photo=buf,
+                    caption=(f"🟢 *FIRST GREEN: {best['code']}* | TF:{best_tf}\n"
+                             f"`{px}` {best['chg']:+.2f}% | Score:`{best['score']}`\n"
+                             f"🔴×{best['red_count']} candle merah sebelumnya\n"
+                             f"Vol:`{best['vol_ratio']:.1f}x` RSI:`{best['rsi']:.0f}` STOCH:`{best['stoch']:.0f}`\n"
+                             f"💡 {' | '.join(best['factors'][:3])}\n"
+                             f"⏱ {fmt_now()}"),
+                    parse_mode="Markdown")
+    except Exception as e:
+        await m.edit_text(f"❌ Error first green scan: {e}")
+
+
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
@@ -2977,6 +3202,7 @@ def run_bot():
           ("screener",screener_cmd),("screener_us",screener_us_cmd),
           ("screener_ideal",screener_ideal_cmd),
           ("doji",doji_cmd),("volmom",volmom_cmd),
+          ("firstgreen",firstgreen_cmd),
           ("pattern",pattern_cmd),
           ("auto",auto_cmd),
           ("doji_auto",doji_auto_cmd),
