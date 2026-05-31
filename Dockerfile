@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "main-34-1.py"]
+CMD ["python", "main-34-2.py"]
