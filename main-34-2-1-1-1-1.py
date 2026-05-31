@@ -1268,87 +1268,36 @@ def generate_chart(code, tf="D", volume_spikes=None):
     ax4.set_xticks(ticks); ax4.set_xticklabels(labels,fontsize=7,color=TEXT2)
 
     # ══════════════════════════════════
-    # ══ RS (RELATIVE STRENGTH) vs Index ══
-    # Strategi: pakai data yg sudah ada di cache dari get_signal()
-    # Tidak fetch data baru — hindari timeout Railway
+    # ══ RS (RELATIVE STRENGTH) — Internal MA50 ══
+    # Tidak download ticker lain — 100% reliable
     try:
-        is_idr_chart = ticker.endswith(".JK")
-        if is_idr_chart:
-            idx_cands = ["BBCA.JK","BBRI.JK","BMRI.JK","TLKM.JK","ASII.JK"]
-            idx_label = "BBCA"
-        else:
-            idx_cands = ["SPY","QQQ","MSFT","AAPL","AMZN"]
-            idx_label = "SPY"
-
-        # Filter saham itu sendiri dari kandidat
-        idx_cands = [c for c in idx_cands if c.upper() != ticker.upper()
-                     and c.replace(".JK","").upper() != ticker.replace(".JK","").upper()]
-
-        # ✅ FIX: Pakai TF_MAP yang SAMA dengan get_signal() supaya cache key cocok
-        _tf_tuple = TF_MAP.get(tf, ("1d","1y"))
-        tf_iv, tf_per = _tf_tuple[0], _tf_tuple[1]
-
-        # Ambil dari cache — tidak trigger download baru
-        df_idx = None
-        for cand in idx_cands:
-            key = f"{cand}_{tf_iv}_{tf_per}"
-            if key in _data_cache:
-                _, df_try = _data_cache[key]
-                if df_try is not None and not df_try.empty and len(df_try) >= 20:
-                    df_idx = df_try
-                    idx_label = cand.replace(".JK","")
-                    break
-
-        # Kalau tidak ada di cache, download pakai get_cached_data (ada retry logic)
-        if df_idx is None:
-            for cand in idx_cands[:3]:
-                try:
-                    df_try = get_cached_data(cand, tf_iv, tf_per)
-                    if df_try is not None and not df_try.empty and len(df_try) >= 20:
-                        df_idx = df_try
-                        idx_label = cand.replace(".JK","")
-                        log.info(f"RS panel: berhasil download {cand}")
-                        break
-                    else:
-                        log.warning(f"RS panel: {cand} data kosong/pendek")
-                except Exception as e:
-                    log.warning(f"RS panel download {cand}: {e}")
-                    continue
-
         rs_ok = False
-        if df_idx is not None and not df_idx.empty:
-            ic_raw = df_idx["Close"].squeeze()
-            if hasattr(ic_raw,'values'): ic_raw = ic_raw.values
-            ic_raw = np.array(ic_raw, dtype=float)
-            ic_raw = ic_raw[~np.isnan(ic_raw)]
-            sc_raw = np.array(closes, dtype=float)
-            sc_raw = sc_raw[~np.isnan(sc_raw)]
-            # ✅ FIX: trim keduanya ke n candle dari ujung kanan supaya timeframe sejajar
-            use_n = min(len(ic_raw), len(sc_raw), n)
+        if len(closes) >= 10 and len(e50v) >= 10:
+            sc  = np.array(closes, dtype=float)
+            ma  = np.array(e50v,   dtype=float)
+            valid = ~(np.isnan(sc) | np.isnan(ma) | (ma == 0))
+            sc = sc[valid]; ma = ma[valid]
+            use_n = min(len(sc), len(ma), n)
             if use_n >= 5:
-                ic = ic_raw[-use_n:]
-                sc = sc_raw[-use_n:]
-                s_norm  = sc / sc[0] * 100
-                i_norm  = ic / ic[0] * 100
-                rs_line = s_norm - i_norm
-                for xi in range(len(rs_line)):
+                sc = sc[-use_n:]; ma = ma[-use_n:]
+                rs_line = (sc / ma - 1.0) * 100.0
+                for xi in range(use_n):
                     v   = float(rs_line[xi])
                     col = "#26a69a" if v >= 0 else "#ef5350"
-                    ax_rs.bar(xi, v, color=col, width=0.85, zorder=3, alpha=0.9)
+                    ax_rs.bar(xi, v, color=col, width=0.85, zorder=3, alpha=0.85)
                 ax_rs.axhline(0, color="#90a4ae", linewidth=0.8, alpha=0.7)
-                ax_rs.set_xlim(-0.5, use_n-0.5)
+                ax_rs.set_xlim(-0.5, use_n - 0.5)
                 ax_rs.set_yticks([]); ax_rs.set_xticks([])
                 last_v   = float(rs_line[-1])
                 rs_color = "#26a69a" if last_v >= 0 else "#ef5350"
-                ax_rs.text(0.01, 0.5, f"RS/{idx_label}: {last_v:+.1f}",
+                ax_rs.text(0.01, 0.5, f"RS/MA50: {last_v:+.1f}%",
                            color=rs_color, fontsize=6, va='center',
                            fontweight='bold', transform=ax_rs.transAxes)
                 rs_ok = True
-
         if not rs_ok:
             ax_rs.set_yticks([]); ax_rs.set_xticks([])
             ax_rs.set_facecolor(BG2)
-            ax_rs.text(0.01, 0.5, f"RS/{idx_label}: —",
+            ax_rs.text(0.01, 0.5, "RS: —",
                       transform=ax_rs.transAxes, color=TEXT2, fontsize=6, va='center')
     except Exception as e:
         try:
@@ -1584,45 +1533,52 @@ async def flipstatus_cmd(u,c):
     await u.message.reply_text("\n".join(lines),parse_mode="Markdown")
 
 async def help_cmd(u,c):
-    await u.message.reply_text(
+    msg1 = (
         "📖 *IDX QUANT v5.1 — Command List*\n\n"
-        "*Signal & Chart:*\n"
-        "`/signal KODE [TF]` — TF: 5M 15M 30M 1H 4H D W M\n"
-        "`/chart KODE [TF]` — Gambar chart candlestick\n"
-        "`/tp KODE [TF]` — TP1/TP2/TP3 + SL1/SL2/SL3 + R/R Ratio\n\n"
-        "*Screener:*\n"
-        "`/screener [idx/min_score]` — IDX screener (parallel)\n"
-        "`/screener us` atau `/screener_us` — US stock screener\n"
-        "`/screener_ideal` — 🏆 IDX Ideal (Score≥6+Uptrend+RSI+MACD+R/R≥1.5x)\n"
-        "`/screener_ideal us` — 🏆 US Ideal Screener\n"
-        "🤖 Auto alert Ideal Screener: open/close IDX&US + tiap 1jam + tiap 4jam\n\n"
-        "🕯 *Doji Bullish Reversal:*\n"
-        "`/doji` — Scan doji IDX (manual: 1H+4H+D) / auto: TF 4H\n"
-        "`/doji us` — Scan doji US stocks\n"
-        "🤖 Auto alert doji TF 4H tiap 1 jam | /doji_auto on|off\n\n"
-        "🌊 *Volume Momentum:*\n"
-        "`/volmom` — Scan IDX volume naik konsisten 5M→15M→30M→1H\n"
-        "`/volmom us` — Scan US stocks volume momentum\n"
-        "🤖 Auto alert volmom tiap 30 menit saat IDX buka\n\n"
-        "🟢 *First Green Screener (BARU):*\n"
-        "`/firstgreen` — IDX: candle hijau pertama setelah ≥2 merah\n"
-        "`/firstgreen us` — US stocks first green\n"
-        "📌 Multi-TF: 30M | 1H | 4H | D + filter RSI & volume\n\n"
-        "*Auto Scan:*\n"
-        "`/auto on` — Aktifkan (IDX 09:00-15:15 + US 20:30-03:00)\n"
-        "`/auto off` — Matikan\n"
-        "`/summary` — Summary IDX manual 📋\n"
-        "`/summary us` — Summary 🇺🇸 US Stocks manual\n\n"
-        "*Market:*\n"
+        "*📊 Signal & Chart:*\n"
+        "`/signal KODE [TF]` — Analisis (TF: 5M 15M 30M 1H 4H D W M)\n"
+        "`/chart KODE [TF]` — Chart candlestick + indikator\n"
+        "`/tp KODE [TF]` — TP/SL + R/R Ratio\n\n"
+        "*🏆 Screener:*\n"
+        "`/screener` — IDX screener\n"
+        "`/screener us` — US stock screener\n"
+        "`/screener_ideal` — IDX Ideal Score≥6\n"
+        "`/screener_ideal us` — US Ideal Screener\n\n"
+        "*🕯 Doji Reversal:*\n"
+        "`/doji` — Scan doji IDX (1H+4H+D)\n"
+        "`/doji us` — Scan doji US\n"
+        "`/doji_auto on|off` — Toggle auto doji\n\n"
+        "*🌊 Volume Momentum:*\n"
+        "`/volmom` — IDX volume naik 5M→1H\n"
+        "`/volmom us` — US volume momentum\n"
+        "`/volmom_auto on|off` — Toggle auto volmom\n\n"
+        "*🟢 First Green (BARU):*\n"
+        "`/firstgreen` — IDX first green 30M/1H/4H/D\n"
+        "`/firstgreen us` — US first green"
+    )
+    msg2 = (
+        "*🤖 Auto Scan:*\n"
+        "`/auto on` — Aktifkan auto scan\n"
+        "`/auto off` — Matikan auto scan\n\n"
+        "*📋 Summary & Market:*\n"
+        "`/summary` — Summary IDX manual\n"
+        "`/summary us` — Summary US manual\n"
         "`/volume` — Top volume IDX\n"
         "`/trend` — Trend market + IHSG\n\n"
-        "*Flip Alert:*\n"
-        "`/flipstatus` — Status flip pixel semua saham\n"
-        "🔔 Auto alert flip tiap 30 menit (aktifkan /auto on)\n\n"
+        "*🔔 Flip Alert:*\n"
+        "`/flipstatus` — Status flip pixel\n"
+        "Auto alert flip tiap 30 menit\n\n"
+        "*⚡ Auto aktif saat /auto on:*\n"
+        "• Volmom tiap 30 menit\n"
+        "• Ideal Screener: open/close + tiap 1j + 4j\n"
+        "• Evening summary 16:05 WIB\n"
+        "• Flip scan tiap 30 menit\n\n"
         "Score: 1-3 Lemah | 4-5 OK | 6+ 🔥\n"
-        "⚠️ LOW LIQUIDITY = saham illiquid/gorengan\n"
-        "⚡ v5.1: Holiday skip + Ideal Screener + Doji/Volmom 4H",
-        parse_mode="Markdown")
+        "⚠️ LOW LIQUIDITY = saham illiquid\n"
+        "🏝 Auto skip libur nasional IDX"
+    )
+    await u.message.reply_text(msg1, parse_mode="Markdown")
+    await u.message.reply_text(msg2, parse_mode="Markdown")
 
 async def signal_cmd(u,c):
     args=c.args
@@ -2119,76 +2075,6 @@ async def trend_cmd(u,c):
 
 # ══ BACKGROUND JOBS ══
 
-async def volume_spike_scan_idx(context):
-    if not is_idx_trading_day(): return  # skip weekend + libur nasional
-    if not is_idx_market_open(): return
-    if not auto_users: return
-    bot=context.bot
-    # ✅ FIX: Parallel scan semua IDX stocks
-    spikes = await asyncio.get_event_loop().run_in_executor(
-        None, parallel_scan, IDX_STOCKS, "5M", 2.5)
-    if not spikes: return
-    for uid in auto_users:
-        try:
-            lines=["⚡ *🇮🇩 IDX VOLUME SPIKE ALERT!*","━━━━━━━━━━━━━━━━━━━━"]
-            buy_spikes=[s for s in spikes if s["direction"]=="BUY"]
-            sell_spikes=[s for s in spikes if s["direction"]=="SELL"]
-            if buy_spikes:
-                lines.append("🟢 *BUY VOLUME SPIKE:*")
-                for s in buy_spikes[:5]:
-                    liq=" ⚠️ILLIQUID" if not s.get("liquid",True) else ""
-                    lines.append(f"  ▲ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x{liq}")
-            if sell_spikes:
-                lines.append("🔴 *SELL VOLUME SPIKE:*")
-                for s in sell_spikes[:5]:
-                    liq=" ⚠️ILLIQUID" if not s.get("liquid",True) else ""
-                    lines.append(f"  ▼ *{s['code']}* `Rp {s['price']:,.0f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x{liq}")
-            lines+=["━━━━━━━━━━━━━━━━━━━━",f"⏱ {fmt_now()}"]
-            await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-            liquid_spikes=[s for s in spikes if s.get("liquid",True)]
-            top=liquid_spikes[0] if liquid_spikes else spikes[0]
-            buf,_=generate_chart(top["code"],"5M")
-            if buf:
-                dir_txt="🟢 BUY SPIKE" if top["direction"]=="BUY" else "🔴 SELL SPIKE"
-                liq_tag=" | ⚠️LOW LIQ" if not top.get("liquid",True) else ""
-                await bot.send_photo(int(uid),photo=buf,
-                    caption=f"📊 {top['code']} | {dir_txt} | Vol:{top['vr']:.1f}x avg{liq_tag} | {fmt_now()}")
-        except Exception as e: log.error(f"IDX spike alert error uid {uid}: {e}")
-
-async def volume_spike_scan_us(context):
-    # US market tutup Sabtu/Minggu
-    if not is_weekday(): return
-    if not is_us_market_open(): return
-    if not auto_users: return
-    bot=context.bot
-    # ✅ FIX: Scan SEMUA US stocks (bukan [:30])
-    spikes = await asyncio.get_event_loop().run_in_executor(
-        None, parallel_scan, US_STOCKS, "5M", 2.5)
-    if not spikes: return
-    for uid in auto_users:
-        try:
-            lines=["⚡ *🇺🇸 US VOLUME SPIKE ALERT!*","━━━━━━━━━━━━━━━━━━━━"]
-            buy_spikes=[s for s in spikes if s["direction"]=="BUY"]
-            sell_spikes=[s for s in spikes if s["direction"]=="SELL"]
-            if buy_spikes:
-                lines.append("🟢 *BUY VOLUME SPIKE:*")
-                for s in buy_spikes[:5]:
-                    lines.append(f"  ▲ *{s['code']}* `${s['price']:,.2f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x")
-            if sell_spikes:
-                lines.append("🔴 *SELL VOLUME SPIKE:*")
-                for s in sell_spikes[:5]:
-                    lines.append(f"  ▼ *{s['code']}* `${s['price']:,.2f}` {s['chg']:+.2f}% Vol:{s['vr']:.1f}x")
-            lines+=["━━━━━━━━━━━━━━━━━━━━",f"⏱ {fmt_now()}"]
-            await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-            if spikes:
-                top=spikes[0]
-                buf,_=generate_chart(top["code"],"5M")
-                if buf:
-                    dir_txt="🟢 BUY SPIKE" if top["direction"]=="BUY" else "🔴 SELL SPIKE"
-                    await bot.send_photo(int(uid),photo=buf,
-                        caption=f"📊 {top['code']} | {dir_txt} | Vol:{top['vr']:.1f}x avg | {fmt_now()}")
-        except Exception as e: log.error(f"US spike alert error uid {uid}: {e}")
-
 async def flip_pixel_scan(context):
     if not is_idx_trading_day(): return  # skip weekend + libur nasional
     if not auto_users: return
@@ -2394,82 +2280,6 @@ def get_net_foreign(code):
         return {"est_net": est, "vr": vr, "last_chg": last_chg}
     except:
         return None
-
-async def morning_scan(context):
-    if not is_idx_trading_day(): return  # skip weekend + libur nasional
-    if not auto_users: return
-    now=datetime.now(WIB); bot=context.bot
-
-    # Cek libur — kirim notif lalu stop
-    if is_idx_holiday():
-        for uid in auto_users:
-            try:
-                await bot.send_message(int(uid),
-                    f"🏖 *BURSA IDX LIBUR HARI INI*\n"
-                    f"📅 {now.strftime('%d %b %Y')} — Hari Libur Nasional\n"
-                    f"🇺🇸 US Market tetap buka malam ini jam 20:30 WIB",
-                    parse_mode="Markdown")
-            except Exception as e: log.error(f"morning scan holiday notif {uid}: {e}")
-        return
-
-    # ✅ FIX: Parallel morning scan
-    res = await asyncio.get_event_loop().run_in_executor(
-        None, parallel_signal_scan, IDX_STOCKS, "D", 4)
-    res=[r for r in res if r.get("liquid",True)]
-
-    # Cek apakah ada saham dengan score layak (>=4)
-    res_layak = [r for r in res if r["score"] >= 4]
-
-    for uid in auto_users:
-        try:
-            if not res_layak:
-                # Semua score rendah — kirim notif tapi tidak spam chart
-                all_scores = [r["score"] for r in res] if res else [0]
-                avg_score = sum(all_scores)/len(all_scores) if all_scores else 0
-                await bot.send_message(int(uid),
-                    f"🌅 *MORNING SCAN IDX — {now.strftime('%d %b %Y')}*\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"⚠️ *Kondisi pasar lemah hari ini*\n"
-                    f"📊 Rata-rata Score: `{avg_score:.1f}/8`\n"
-                    f"❌ Tidak ada saham dengan score ≥4\n\n"
-                    f"💡 Saran: Tunggu, jangan dipaksakan entry.\n"
-                    f"🔍 Cek manual via `/screener` atau `/trend`\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n⏱ {fmt_now()}",
-                    parse_mode="Markdown")
-                continue
-
-            lines=["🌅 *MORNING SCAN IDX — "+now.strftime("%d %b %Y")+"*",
-                   "━━━━━━━━━━━━━━━━━━━━","🔥 Top picks hari ini (liquid only):\n"]
-            for r in res_layak[:8]:
-                em="🟢" if r["chg"]>=0 else "🔴"
-                top=r["sigs"][0].split("-")[0].strip() if r["sigs"] else "—"
-                # Net foreign estimasi
-                nf = get_net_foreign(r["code"])
-                nf_tag = ""
-                if nf:
-                    if nf["est_net"] > 0.5:   nf_tag = " 🟩NB"  # net buy asing est
-                    elif nf["est_net"] < -0.5: nf_tag = " 🟥NS"  # net sell asing est
-                lines.append(f"{em} *{r['code']}* `{r['price']:,.0f}` Score:`{r['score']}/8` {top}{nf_tag}")
-            lines+=["━━━━━━━━━━━━━━━━━━━━",
-                    "🤖 IDX scan aktif 09:00-15:15 WIB\n🇺🇸 US scan aktif 20:30-03:00 WIB"]
-            await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-            for r in res_layak[:3]:
-                buf,_=generate_chart(r["code"],"D")
-                if buf:
-                    ts = calculate_tp_sl(r)
-                    is_idr = r.get("ticker","").endswith(".JK")
-                    await bot.send_photo(int(uid),photo=buf,
-                        caption=(f"📊 *{r['code']}* | Score:{r['score']}/8 | {r['trend']}\n"
-                                 f"━━━━━━━━━━━━━━━\n"
-                                 f"🎯 TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
-                                 f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%) "
-                                 f"TP3:`{ts['tp3_str']}`({ts['tp3_pct']:+.1f}%)\n"
-                                 f"🛡 SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
-                                 f"SL2:`{ts['sl2_str']}`({ts['sl2_pct']:+.1f}%) "
-                                 f"SL3:`{ts['sl3_str']}`({ts['sl3_pct']:+.1f}%)\n"
-                                 f"⚖️ R/R:`{ts['rr']}x`"),
-                        parse_mode="Markdown")
-        except Exception as e: log.error(f"morning scan error uid {uid}: {e}")
 
 # ══ FLASK ══
 app=Flask(__name__)
@@ -3211,9 +3021,6 @@ def run_bot():
           ("volume",volume_cmd),("trend",trend_cmd)]
     for cmd,fn in cmds: tg.add_handler(CommandHandler(cmd,fn))
     jq=tg.job_queue
-    jq.run_repeating(volume_spike_scan_idx,interval=900,first=120)
-    jq.run_repeating(volume_spike_scan_us,interval=900,first=180)
-    jq.run_daily(morning_scan,time=dtime(9,0,tzinfo=WIB))
     jq.run_daily(evening_summary,time=dtime(16,5,tzinfo=WIB))
     jq.run_repeating(flip_pixel_scan,interval=1800,first=300)
     jq.run_repeating(doji_auto_scan,interval=3600,first=600)
