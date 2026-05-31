@@ -172,9 +172,10 @@ def get_cached_data(ticker, interval, period):
             return df
     try:
         df = yf.download(ticker, period=period, interval=interval,
-                        progress=False, auto_adjust=True)
-        _data_cache[key] = (now, df)
-        return df
+                        progress=False, auto_adjust=True, timeout=15)
+        if df is not None and not df.empty:
+            _data_cache[key] = (now, df)
+        return df if df is not None else pd.DataFrame()
     except:
         return pd.DataFrame()
 
@@ -1276,8 +1277,8 @@ def generate_chart(code, tf="D", volume_spikes=None):
             idx_cands = ["BBCA.JK","BBRI.JK","BMRI.JK","TLKM.JK","ASII.JK"]
             idx_label = "BBCA"
         else:
-            idx_cands = ["QQQ","MSFT","AAPL","AMZN","GOOGL"]
-            idx_label = "QQQ"
+            idx_cands = ["SPY","QQQ","MSFT","AAPL","AMZN"]
+            idx_label = "SPY"
 
         # Filter saham itu sendiri dari kandidat
         idx_cands = [c for c in idx_cands if c.upper() != ticker.upper()
@@ -1322,7 +1323,8 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ic_raw = ic_raw[~np.isnan(ic_raw)]
             sc_raw = np.array(closes, dtype=float)
             sc_raw = sc_raw[~np.isnan(sc_raw)]
-            min_len = min(len(ic_raw), len(sc_raw), n)
+            min_len = min(len(ic_raw), len(sc_raw))
+            min_len = max(min_len, 0)  # pastikan tidak negatif
             if min_len >= 5:
                 ic = ic_raw[-min_len:]
                 sc = sc_raw[-min_len:]
