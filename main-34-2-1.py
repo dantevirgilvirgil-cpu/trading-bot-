@@ -1283,10 +1283,9 @@ def generate_chart(code, tf="D", volume_spikes=None):
         idx_cands = [c for c in idx_cands if c.upper() != ticker.upper()
                      and c.replace(".JK","").upper() != ticker.replace(".JK","").upper()]
 
-        tf_iv  = {"5M":"5m","15M":"15m","30M":"30m","1H":"60m",
-                  "4H":"60m","D":"1d","W":"1wk","M":"1mo"}.get(tf,"1d")
-        tf_per = {"5M":"5d","15M":"5d","30M":"10d","1H":"30d",
-                  "4H":"60d","D":"1y","W":"2y","M":"5y"}.get(tf,"1y")
+        # ✅ FIX: Pakai TF_MAP yang SAMA dengan get_signal() supaya cache key cocok
+        _tf_tuple = TF_MAP.get(tf, ("1d","1y"))
+        tf_iv, tf_per = _tf_tuple[0], _tf_tuple[1]
 
         # Ambil dari cache — tidak trigger download baru
         df_idx = None
@@ -3001,18 +3000,18 @@ def detect_first_green(code, tf="D"):
         # Candle terakhir harus HIJAU (close > open)
         if closes[-1] <= opens[-1]: return None
 
-        # Minimal 2 candle sebelumnya MERAH berturut-turut
+        # Minimal 1 candle merah sebelumnya (lebih sensitif), hitung berapa banyak
         red_count = 0
-        for i in range(-2, -6, -1):
+        for i in range(-2, -8, -1):
             if closes[i] < opens[i]:
                 red_count += 1
             else:
                 break
-        if red_count < 2: return None
+        if red_count < 1: return None  # minimal 1 candle merah
 
-        # Filter: RSI tidak overbought (< 75)
+        # Filter: RSI tidak overbought (< 78, lebih longgar)
         rsi_val = r["rsi"]
-        if rsi_val >= 75: return None
+        if rsi_val >= 78: return None
 
         # Volume konfirmasi: candle hijau ini volumenya >= 1.1x rata-rata
         avg_vol = float(np.mean(vols[-10:-1])) if len(vols) >= 10 else float(np.mean(vols[:-1]))
@@ -3063,7 +3062,7 @@ def detect_first_green(code, tf="D"):
         if body_pct >= 2.0:   score += 1; factors.append(f"Body besar {body_pct:.1f}%")
         elif body_pct >= 1.0: factors.append(f"Body {body_pct:.1f}%")
 
-        if score < 3: return None  # minimal score 3
+        if score < 2: return None  # minimal score 2
 
         return {
             "code":      code,
