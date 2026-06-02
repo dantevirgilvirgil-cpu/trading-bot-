@@ -261,7 +261,12 @@ def get_signal(code,tf="D"):
         lh=float(hs.iloc[-1]); ph=float(hs.iloc[-2]); lsk=float(sk.iloc[-1])
         lv=float(v.iloc[-1]); av=float(v.tail(20).mean()); vr=lv/av if av>0 else 1
         chg=(lc-pc)/pc*100; sigs=[]; sc=0
-        if lc>le9>le20>le50: sigs.append("🦅 HAWK1 - EMA Stack Bullish"); sc+=3
+        # ✅ FIX: HAWK1 butuh EMA stack + RSI tidak overbought + STOCH tidak overbought
+        if lc>le9>le20>le50 and lr<75 and lsk<80:
+            sigs.append("🦅 HAWK1 - EMA Stack Bullish"); sc+=3
+        elif lc>le9>le20>le50:
+            # EMA stack oke tapi overbought — turunkan ke GREEN BULL
+            sigs.append("🟢 GREEN BULL - EMA Stack OB"); sc+=2
         elif lc>le20>le50: sigs.append("🟢 GREEN BULL - Di atas MA20&50"); sc+=2
         elif lc>le9 and le9>le20: sigs.append("⬆ BREAK TOP - EMA9 cross MA20"); sc+=2
         if lm>ls and ph<0 and lh>0: sigs.append("🔵 MACD Golden Cross"); sc+=2
@@ -272,7 +277,7 @@ def get_signal(code,tf="D"):
         if vr>2: sigs.append(f"🌊 BUY LAUTAN - Volume {vr:.1f}x"); sc+=2
         elif vr>1.5: sigs.append(f"📈 Volume {vr:.1f}x avg"); sc+=1
         if lsk<20: sigs.append(f"🟣 BUY MAGENTA - Stoch ({lsk:.1f})"); sc+=1
-        elif lsk>80: sigs.append(f"⚠️ Stoch OB ({lsk:.1f})")
+        elif lsk>80: sigs.append(f"⚠️ Stoch OB ({lsk:.1f})"); sc-=1
         trend="UPTREND ⬆" if lc>le50 else "DOWNTREND ⬇" if lc<le50 else "SIDEWAYS ↔"
         is_idx = ticker.endswith(".JK")
         liquid = is_liquid_stock(av, lc) if is_idx else True
