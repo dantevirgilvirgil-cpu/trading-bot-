@@ -265,8 +265,8 @@ def get_signal(code,tf="D"):
         if lc>le9>le20>le50 and lr<75 and lsk<80:
             sigs.append("🦅 HAWK1 - EMA Stack Bullish"); sc+=3
         elif lc>le9>le20>le50:
-            # EMA stack oke tapi overbought — turunkan ke GREEN BULL
-            sigs.append("🟢 GREEN BULL - EMA Stack OB"); sc+=2
+            # EMA stack oke tapi overbought — score sama HAWK1 tapi label beda
+            sigs.append("🟢 GREEN BULL - EMA Stack OB"); sc+=3
         elif lc>le20>le50: sigs.append("🟢 GREEN BULL - Di atas MA20&50"); sc+=2
         elif lc>le9 and le9>le20: sigs.append("⬆ BREAK TOP - EMA9 cross MA20"); sc+=2
         if lm>ls and ph<0 and lh>0: sigs.append("🔵 MACD Golden Cross"); sc+=2
