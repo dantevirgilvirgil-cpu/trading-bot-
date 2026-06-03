@@ -27,7 +27,7 @@ WIB=pytz.timezone("Asia/Jakarta")
 
 # ══ TF MAP ══
 TF_MAP={"5M":("5m","5d"),"15M":("15m","5d"),"30M":("30m","10d"),
-        "1H":("60m","29d"),"4H":("60m","29d"),"D":("1d","1y"),
+        "1H":("60m","60d"),"4H":("60m","60d"),"D":("1d","1y"),
         "W":("1wk","5y"),"M":("1mo","10y")}
 
 # ══ STOCK LISTS ══
@@ -1168,6 +1168,11 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.plot([x0, x1],[u["y0"], u["y1"]],
                      color="#f39c12", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
                      label="Upper TL")
+            # Label harga di ujung Upper TL
+            ax1.text(x1 + 0.3, u["y1"], f'Rp {u["y1"]:,.0f}'.replace(',','.'),
+                     color='#f39c12', fontsize=6.5, va='center', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#f39c12', alpha=0.85, linewidth=0.8),
+                     zorder=10)
             # Pivot arrows (ganti titik → panah kecil)
             for px2, py2 in zip([tl_offset+px3 for px3 in u["pivot_x"]], u["pivot_y"]):
                 ax1.annotate('', xy=(px2, py2), xytext=(px2, py2 * 1.012),
@@ -1180,6 +1185,11 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.plot([x0, x1],[lo2["y0"], lo2["y1"]],
                      color="#27ae60", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
                      label="Lower TL")
+            # Label harga di ujung Lower TL
+            ax1.text(x1 + 0.3, lo2["y1"], f'Rp {lo2["y1"]:,.0f}'.replace(',','.'),
+                     color='#27ae60', fontsize=6.5, va='center', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#27ae60', alpha=0.85, linewidth=0.8),
+                     zorder=10)
             for px2, py2 in zip([tl_offset+px3 for px3 in lo2["pivot_x"]], lo2["pivot_y"]):
                 ax1.annotate('', xy=(px2, py2), xytext=(px2, py2 * 0.988),
                     arrowprops=dict(arrowstyle='->', color='#27ae60', lw=1.2),
