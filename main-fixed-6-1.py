@@ -236,6 +236,9 @@ def get_cached_data(ticker, interval, period):
         df = yf.download(ticker, period=period, interval=interval,
                         progress=False, auto_adjust=True, timeout=15)
         if df is not None and not df.empty:
+            # Flatten MultiIndex columns (yfinance >= 0.2.40)
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
             _data_cache[key] = (now, df)
         return df if df is not None else pd.DataFrame()
     except:
@@ -251,6 +254,9 @@ def get_signal(code,tf="D"):
             ticker=code.upper()
             df = get_cached_data(ticker, iv, per)
         if df.empty or len(df)<26: return{"error":"Data kurang"}
+        # Fix yfinance MultiIndex columns (terjadi di versi baru)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
         c=df["Close"].squeeze(); h=df["High"].squeeze()
         l=df["Low"].squeeze(); v=df["Volume"].squeeze()
         e9=ema(c,9); e20=ema(c,20); e50=ema(c,50)
@@ -1609,6 +1615,10 @@ async def start(u,c):
         "🟢 *First Green Screener (BARU):*\n"
         "`/firstgreen` — IDX: candle hijau pertama setelah ≥2 merah (30M/1H/4H/D)\n"
         "`/firstgreen us` — US stocks first green\n\n"
+        "💧 *MDP — Market Depth Pressure (BARU):*\n"
+        "`/mdp` — Scan IDX buy/sell pressure + score probabilitas\n"
+        "`/mdp us` — Scan US stocks\n"
+        "`/mdp detail KODE` — Detail MDP 1 saham (auto 3x/hari)\n\n"
         "🤖 *Auto Scan:*\n"
         "`/auto on` — Aktifkan auto scan\n"
         "`/auto off` — Matikan auto scan\n\n"
@@ -1616,7 +1626,7 @@ async def start(u,c):
         "`/volume` — Top volume IDX\n"
         "`/trend` — Market overview\n"
         "`/help` — Bantuan lengkap\n\n"
-        "⚡ *v5.1: Holiday skip + ATR SL + Ideal Screener + Doji/Volmom 4H*",
+        "⚡ *v5.2: MDP + MultiTF Flip + NaN fix + ATR SL + Ideal Screener + Doji/Volmom 4H*",
         parse_mode="Markdown")
 
 async def flipstatus_cmd(u,c):
@@ -1633,7 +1643,7 @@ async def flipstatus_cmd(u,c):
 
 async def help_cmd(u,c):
     msg1 = (
-        "📖 *IDX QUANT v5.1 — Command List*\n\n"
+        "📖 *IDX QUANT v5.2 — Command List*\n\n"
         "*📊 Signal & Chart:*\n"
         "`/signal KODE [TF]` — Analisis (TF: 5M 15M 30M 1H 4H D W M)\n"
         "`/chart KODE [TF]` — Chart candlestick + indikator\n"
@@ -2076,7 +2086,7 @@ async def auto_cmd(u,c):
     if args[0].lower()=="on":
         auto_users[uid]=True; save_json(AUTO_FILE,auto_users)
         await u.message.reply_text(
-            "🤖 *Auto Scan AKTIF v5.1!*\n\n"
+            "🤖 *Auto Scan AKTIF v5.2!*\n\n"
             "🇮🇩 *IDX Scanner:* aktif *09:00-15:15 WIB* (weekday)\n"
             "🇺🇸 *US Scanner:* aktif *20:30-03:00 WIB* (weekday)\n"
             "⏰ Volume spike alert setiap *15 menit*\n"
