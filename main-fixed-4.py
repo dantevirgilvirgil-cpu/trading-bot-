@@ -1525,9 +1525,9 @@ def calculate_tp_sl(r):
     sl2 = min(sl2, sl1  * 0.97)
     sl3 = min(sl3, sl2  * 0.97)
 
-    # ── Risk/Reward Ratio (vs SL1) ──
-    risk   = price - sl1
-    reward = tp1   - price
+    # ── Risk/Reward Ratio: pakai TP3 vs SL1 supaya target 1:3 ──
+    risk   = price - sl1        # risk  = jarak ke SL1 (tight stop)
+    reward = tp3   - price      # reward = jarak ke TP3 (full target)
     rr     = round(reward / risk, 2) if risk > 0 else 0
 
     def fmt_p(v):
@@ -2157,30 +2157,38 @@ async def flip_pixel_scan(context):
     if not auto_users: return
     if not (is_idx_market_open() or is_us_market_open()): return
     bot=context.bot
-    all_stocks=[(c,"D") for c in IDX_STOCKS]+[(c,"D") for c in US_STOCKS[:20]]
+
+    # ✅ FIX: Scan multi-TF — 30M, 1H, 4H, D untuk IDX; D+4H untuk US
+    idx_tfs  = ["30M", "1H", "4H", "D"]
+    us_tfs   = ["4H", "D"]
+    all_stocks = ([(c, tf) for c in IDX_STOCKS for tf in idx_tfs] +
+                  [(c, tf) for c in US_STOCKS[:30] for tf in us_tfs])
+
     flips_bull=[]; flips_bear=[]
 
     def check_flip(code_tf):
-        code,tf=code_tf
-        new_state=get_trend_state(code,tf)
+        code, tf = code_tf
+        new_state = get_trend_state(code, tf)
         if new_state is None: return None
-        old_state=flip_state_db.get(code,"neutral")
-        flip_state_db[code]=new_state
-        if old_state in ("bear","neutral") and new_state=="bull":
-            r=get_signal(code,tf)
-            if "error" not in r and r.get("liquid",True): return ("bull",code,r)
-        elif old_state in ("bull","neutral") and new_state=="bear":
-            r=get_signal(code,tf)
-            if "error" not in r: return ("bear",code,r)
+        # ✅ FIX: key include TF supaya tidak overwrite satu sama lain
+        state_key = f"{code}_{tf}"
+        old_state = flip_state_db.get(state_key, "neutral")
+        flip_state_db[state_key] = new_state
+        if old_state in ("bear", "neutral") and new_state == "bull":
+            r = get_signal(code, tf)
+            if "error" not in r and r.get("liquid", True): return ("bull", code, tf, r)
+        elif old_state in ("bull", "neutral") and new_state == "bear":
+            r = get_signal(code, tf)
+            if "error" not in r: return ("bear", code, tf, r)
         return None
 
     loop=asyncio.get_event_loop()
     results=await loop.run_in_executor(None,lambda:[check_flip(ct) for ct in all_stocks])
     for res in results:
         if res is None: continue
-        direction,code,r=res
-        if direction=="bull": flips_bull.append((code,r))
-        else: flips_bear.append((code,r))
+        direction,code,tf,r=res
+        if direction=="bull": flips_bull.append((code,tf,r))
+        else: flips_bear.append((code,tf,r))
     save_json(FLIP_FILE,flip_state_db)
     if not flips_bull and not flips_bear: return
     now_str=datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
@@ -2188,24 +2196,25 @@ async def flip_pixel_scan(context):
         try:
             if flips_bull:
                 lines=["🚀 *PIXEL FLIP — BEARISH ➜ BULLISH*",f"🕐 {now_str}","━━━━━━━━━━━━━━━━━━━━"]
-                for code,r in flips_bull[:6]:
-                    is_idr=code.endswith(".JK")
+                for code,tf,r in flips_bull[:8]:
+                    is_idr=r["ticker"].endswith(".JK")
                     px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
                     chg=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
                     sig=r['sigs'][0].split('-')[0].strip() if r['sigs'] else 'No Signal'
-                    lines.append(f"✅ *{code}* `{px}` {chg} | Score:`{r['score']}/8` | {sig}")
+                    lines.append(f"✅ *{code}* TF:`{tf}` `{px}` {chg} | Score:`{r['score']}/8` | {sig}")
                 lines+=["━━━━━━━━━━━━━━━━━━━━","📊 EMA: Price > EMA9 > MA20 > MA50","💡 Konfirmasi entry!"]
                 await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-                buf,_=generate_chart(flips_bull[0][0],"D")
+                best_code,best_tf,best_r=flips_bull[0]
+                buf,_=generate_chart(best_code,best_tf)
                 if buf: await bot.send_photo(int(uid),photo=buf,
-                    caption=f"🚀 FLIP BULLISH: {flips_bull[0][0]} | Score:{flips_bull[0][1]['score']}/8 | {now_str}")
+                    caption=f"🚀 FLIP BULLISH: {best_code} TF:{best_tf} | Score:{best_r['score']}/8 | {now_str}")
             if flips_bear:
                 lines=["⚠️ *PIXEL FLIP — BULLISH ➜ BEARISH*",f"🕐 {now_str}","━━━━━━━━━━━━━━━━━━━━"]
-                for code,r in flips_bear[:6]:
-                    is_idr=code.endswith(".JK")
+                for code,tf,r in flips_bear[:8]:
+                    is_idr=r["ticker"].endswith(".JK")
                     px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
                     chg=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
-                    lines.append(f"🔴 *{code}* `{px}` {chg} | Score:`{r['score']}/8` | CUT/AVOID")
+                    lines.append(f"🔴 *{code}* TF:`{tf}` `{px}` {chg} | Score:`{r['score']}/8` | CUT/AVOID")
                 lines+=["━━━━━━━━━━━━━━━━━━━━","📊 EMA: Price < EMA9 < MA20 < MA50","⚡ Waspada distribusi!"]
                 await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
         except Exception as e: log.error(f"flip alert uid {uid}: {e}")
@@ -2683,7 +2692,7 @@ async def pattern_cmd(u, c):
 # ══════════════════════════════════════════════════════════════
 
 MIN_SCORE_IDEAL   = 6      # Score minimum dari 8
-MIN_RR_IDEAL      = 1.5    # Risk/Reward minimum
+MIN_RR_IDEAL      = 2.5    # Risk/Reward minimum (vs TP3, target R/R 1:3)
 RSI_MIN_IDEAL     = 40     # RSI lower bound
 RSI_MAX_IDEAL     = 65     # RSI upper bound (hindari overbought)
 
