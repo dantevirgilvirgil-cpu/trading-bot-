@@ -253,7 +253,7 @@ def get_signal(code,tf="D"):
         if (df.empty or len(df)<26) and ticker.endswith(".JK"):
             ticker=code.upper()
             df = get_cached_data(ticker, iv, per)
-        if df.empty or len(df)<26: return{"error":"Data kurang"}
+        if df.empty or len(df)<10: return{"error":"Data kurang"}
         # Fix yfinance MultiIndex columns (terjadi di versi baru)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
