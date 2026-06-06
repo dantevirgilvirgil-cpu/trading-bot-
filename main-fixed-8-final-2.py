@@ -246,6 +246,8 @@ def get_cached_data(ticker, interval, period):
                 df = df.xs(ticker, axis=1, level=1, drop_level=True) if ticker in df.columns.get_level_values(1) else df
                 if isinstance(df.columns, pd.MultiIndex):
                     df.columns = df.columns.get_level_values(0)
+            # Normalize kolom jadi Title Case (Close, Open, High, Low, Volume)
+            df.columns = [c.title() for c in df.columns]
             _data_cache[key] = (now, df)
         return df if df is not None else pd.DataFrame()
     except:
