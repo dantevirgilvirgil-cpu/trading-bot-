@@ -2060,6 +2060,45 @@ async def flip_pixel_scan(context):
                 await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
         except Exception as e: log.error(f"flip alert uid {uid}: {e}")
 
+
+async def auto_cmd(u,c):
+    uid=str(u.effective_user.id); args=c.args
+    if not args: await u.message.reply_text("⚠️ Format: `/auto on` atau `/auto off`",parse_mode="Markdown"); return
+    if args[0].lower()=="on":
+        auto_users[uid]=True; save_json(AUTO_FILE,auto_users)
+        await u.message.reply_text(
+            "🤖 *Auto Scan AKTIF!*\n\n"
+            "🇮🇩 *IDX Scanner:* aktif *09:00-15:15 WIB* (weekday)\n"
+            "🇺🇸 *US Scanner:* aktif *20:30-03:00 WIB* (weekday)\n"
+            "⏰ Volume spike alert setiap *15 menit*\n"
+            "🌅 Morning scan IDX setiap jam *09:00 WIB*\n"
+            "🕯 *Doji scan* tiap 1 jam — TF 4H\n"
+            "🏆 *Ideal Screener:* open/close IDX&US + tiap 1jam + tiap 4jam\n"
+            "⚡ *Parallel scan 10 thread*\n\n"
+            "🏖 *Auto skip libur nasional IDX*\n"
+            "📊 *Score rendah = notif ringkas*\n"
+            "🔄 On/off doji: `/doji_auto on|off`\n"
+            "⚠️ LOW LIQUIDITY = saham illiquid otomatis diberi tanda",
+            parse_mode="Markdown")
+    else:
+        auto_users.pop(uid,None); save_json(AUTO_FILE,auto_users)
+        await u.message.reply_text("⏹ Auto scan dimatikan.",parse_mode="Markdown")
+
+async def doji_auto_cmd(u, c):
+    """Command /doji_auto on|off"""
+    global doji_auto_enabled
+    args = c.args
+    if not args:
+        status = "✅ ON" if doji_auto_enabled else "❌ OFF"
+        await u.message.reply_text(f"🕯 Doji Auto Scan: *{status}*\nGunakan `/doji_auto on` atau `/doji_auto off`", parse_mode="Markdown")
+        return
+    if args[0].lower() == "on":
+        doji_auto_enabled = True
+        await u.message.reply_text("🕯 *Doji Auto Scan: ✅ AKTIF*", parse_mode="Markdown")
+    else:
+        doji_auto_enabled = False
+        await u.message.reply_text("🕯 *Doji Auto Scan: ❌ MATI*", parse_mode="Markdown")
+
 async def doji_auto_scan(context):
     """Auto scan doji bullish reversal IDX — hanya TF 4H (hemat resource)"""
     if not is_idx_trading_day(): return
