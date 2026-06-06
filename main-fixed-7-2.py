@@ -3448,7 +3448,7 @@ async def mdp_auto_scan(context):
 
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
-    tg=Application.builder().token(TOKEN).job_queue(JobQueue()).build()
+    tg=Application.builder().token(TOKEN).build()
     cmds=[("start",start),("help",help_cmd),("flipstatus",flipstatus_cmd),
           ("signal",signal_cmd),("chart",chart_cmd),
           ("tp",tp_cmd),("summary",summary_cmd),
