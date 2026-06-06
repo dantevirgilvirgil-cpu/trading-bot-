@@ -234,19 +234,13 @@ def get_cached_data(ticker, interval, period):
             return df
     try:
         df = yf.download(ticker, period=period, interval=interval,
-                        progress=False, auto_adjust=True, timeout=15,
-                        group_by="column")
+                        progress=False, auto_adjust=True, timeout=15)
         if df is not None and not df.empty:
-            # Flatten MultiIndex columns (yfinance >= 0.2.40)
+            # Fix yfinance MultiIndex (versi >= 0.2.40)
             if isinstance(df.columns, pd.MultiIndex):
-                # Ambil level pertama (nama kolom), buang level ticker
-                df.columns = df.columns.get_level_values(0)
-            # Pastikan kolom standard ada
-            needed = ["Open","High","Low","Close","Volume"]
-            if not all(c in df.columns for c in needed):
-                return pd.DataFrame()
-            df = df[needed].copy()
-            df.dropna(subset=["Close"], inplace=True)
+                df = df.xs(ticker, axis=1, level=1, drop_level=True) if ticker in df.columns.get_level_values(1) else df
+                if isinstance(df.columns, pd.MultiIndex):
+                    df.columns = df.columns.get_level_values(0)
             _data_cache[key] = (now, df)
         return df if df is not None else pd.DataFrame()
     except:
@@ -261,10 +255,7 @@ def get_signal(code,tf="D"):
         if (df.empty or len(df)<26) and ticker.endswith(".JK"):
             ticker=code.upper()
             df = get_cached_data(ticker, iv, per)
-        if df.empty or len(df)<10: return{"error":"Data kurang"}
-        # Fix yfinance MultiIndex columns (terjadi di versi baru)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        if df.empty or len(df)<26: return{"error":"Data kurang"}
         c=df["Close"].squeeze(); h=df["High"].squeeze()
         l=df["Low"].squeeze(); v=df["Volume"].squeeze()
         e9=ema(c,9); e20=ema(c,20); e50=ema(c,50)
@@ -274,11 +265,11 @@ def get_signal(code,tf="D"):
         lr=float(r.iloc[-1]); lm=float(ml.iloc[-1]); ls=float(sg.iloc[-1])
         lh=float(hs.iloc[-1]); ph=float(hs.iloc[-2]); lsk=float(sk.iloc[-1])
         lv=float(v.iloc[-1]); av=float(v.tail(20).mean()); vr=lv/av if av>0 else 1
-        # NaN guard: RSI/Stoch butuh 14+ candle valid — fallback netral
+        # NaN guard: RSI/Stoch butuh 14+ candle valid — fallback ke nilai netral
         import math
         if math.isnan(lc) or lc <= 0: return {"error": "Price NaN"}
-        if math.isnan(lr):  lr  = 50.0
-        if math.isnan(lsk): lsk = 50.0
+        if math.isnan(lr):  lr  = 50.0   # RSI netral
+        if math.isnan(lsk): lsk = 50.0   # Stoch netral
         if math.isnan(lm):  lm  = 0.0
         if math.isnan(ls):  ls  = 0.0
         if math.isnan(lh):  lh  = 0.0
@@ -287,12 +278,7 @@ def get_signal(code,tf="D"):
         if math.isnan(le20): le20 = lc
         if math.isnan(le50): le50 = lc
         chg=(lc-pc)/pc*100; sigs=[]; sc=0
-        # ✅ FIX: HAWK1 butuh EMA stack + RSI tidak overbought + STOCH tidak overbought
-        if lc>le9>le20>le50 and lr<75 and lsk<80:
-            sigs.append("🦅 HAWK1 - EMA Stack Bullish"); sc+=3
-        elif lc>le9>le20>le50:
-            # EMA stack oke tapi overbought — score sama HAWK1 tapi label beda
-            sigs.append("🟢 GREEN BULL - EMA Stack OB"); sc+=3
+        if lc>le9>le20>le50: sigs.append("🦅 HAWK1 - EMA Stack Bullish"); sc+=3
         elif lc>le20>le50: sigs.append("🟢 GREEN BULL - Di atas MA20&50"); sc+=2
         elif lc>le9 and le9>le20: sigs.append("⬆ BREAK TOP - EMA9 cross MA20"); sc+=2
         if lm>ls and ph<0 and lh>0: sigs.append("🔵 MACD Golden Cross"); sc+=2
@@ -303,7 +289,7 @@ def get_signal(code,tf="D"):
         if vr>2: sigs.append(f"🌊 BUY LAUTAN - Volume {vr:.1f}x"); sc+=2
         elif vr>1.5: sigs.append(f"📈 Volume {vr:.1f}x avg"); sc+=1
         if lsk<20: sigs.append(f"🟣 BUY MAGENTA - Stoch ({lsk:.1f})"); sc+=1
-        elif lsk>80: sigs.append(f"⚠️ Stoch OB ({lsk:.1f})"); sc-=1
+        elif lsk>80: sigs.append(f"⚠️ Stoch OB ({lsk:.1f})")
         trend="UPTREND ⬆" if lc>le50 else "DOWNTREND ⬇" if lc<le50 else "SIDEWAYS ↔"
         is_idx = ticker.endswith(".JK")
         liquid = is_liquid_stock(av, lc) if is_idx else True
@@ -1194,11 +1180,6 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.plot([x0, x1],[u["y0"], u["y1"]],
                      color="#f39c12", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
                      label="Upper TL")
-            # Label harga di ujung Upper TL
-            ax1.text(x1 + 0.3, u["y1"], f'Rp {u["y1"]:,.0f}'.replace(',','.'),
-                     color='#f39c12', fontsize=6.5, va='center', fontweight='bold',
-                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#f39c12', alpha=0.85, linewidth=0.8),
-                     zorder=10)
             # Pivot arrows (ganti titik → panah kecil)
             for px2, py2 in zip([tl_offset+px3 for px3 in u["pivot_x"]], u["pivot_y"]):
                 ax1.annotate('', xy=(px2, py2), xytext=(px2, py2 * 1.012),
@@ -1211,11 +1192,6 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.plot([x0, x1],[lo2["y0"], lo2["y1"]],
                      color="#27ae60", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
                      label="Lower TL")
-            # Label harga di ujung Lower TL
-            ax1.text(x1 + 0.3, lo2["y1"], f'Rp {lo2["y1"]:,.0f}'.replace(',','.'),
-                     color='#27ae60', fontsize=6.5, va='center', fontweight='bold',
-                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#27ae60', alpha=0.85, linewidth=0.8),
-                     zorder=10)
             for px2, py2 in zip([tl_offset+px3 for px3 in lo2["pivot_x"]], lo2["pivot_y"]):
                 ax1.annotate('', xy=(px2, py2), xytext=(px2, py2 * 0.988),
                     arrowprops=dict(arrowstyle='->', color='#27ae60', lw=1.2),
@@ -1510,21 +1486,13 @@ def calculate_tp_sl(r):
     is_idr = r["ticker"].endswith(".JK")
 
     # ── ATR approx: pakai range harga 20 candle terakhir dari df
-    import math
     try:
         df  = r["df"]
         hi  = df["High"].squeeze().tail(20)
         lo  = df["Low"].squeeze().tail(20)
         atr = float((hi - lo).mean())
-        if math.isnan(atr) or atr <= 0:
-            atr = price * 0.03   # fallback 3%
     except:
         atr = price * 0.03   # fallback 3% kalau df tidak tersedia
-    # Guard price NaN
-    if math.isnan(price) or price <= 0: price = 1.0
-    if math.isnan(e9):  e9  = price
-    if math.isnan(e20): e20 = price
-    if math.isnan(e50): e50 = price
 
     # ── Target Price (TP) ──
     # TP1: EMA9 + 1 ATR  (target cepat)
@@ -1559,14 +1527,12 @@ def calculate_tp_sl(r):
     sl2 = min(sl2, sl1  * 0.97)
     sl3 = min(sl3, sl2  * 0.97)
 
-    # ── Risk/Reward Ratio: pakai TP3 vs SL1 supaya target 1:3 ──
-    risk   = price - sl1        # risk  = jarak ke SL1 (tight stop)
-    reward = tp3   - price      # reward = jarak ke TP3 (full target)
+    # ── Risk/Reward Ratio: pakai TP3 vs SL1 ──
+    risk   = price - sl1
+    reward = tp3   - price
     rr     = round(reward / risk, 2) if risk > 0 else 0
 
     def fmt_p(v):
-        import math
-        if v is None or math.isnan(v) or v <= 0: return "-"
         return f"Rp {v:,.0f}" if is_idr else f"${v:,.2f}"
 
     return {
@@ -1623,10 +1589,6 @@ async def start(u,c):
         "🟢 *First Green Screener (BARU):*\n"
         "`/firstgreen` — IDX: candle hijau pertama setelah ≥2 merah (30M/1H/4H/D)\n"
         "`/firstgreen us` — US stocks first green\n\n"
-        "💧 *MDP — Market Depth Pressure (BARU):*\n"
-        "`/mdp` — Scan IDX buy/sell pressure + score probabilitas\n"
-        "`/mdp us` — Scan US stocks\n"
-        "`/mdp detail KODE` — Detail MDP 1 saham (auto 3x/hari)\n\n"
         "🤖 *Auto Scan:*\n"
         "`/auto on` — Aktifkan auto scan\n"
         "`/auto off` — Matikan auto scan\n\n"
@@ -1634,7 +1596,7 @@ async def start(u,c):
         "`/volume` — Top volume IDX\n"
         "`/trend` — Market overview\n"
         "`/help` — Bantuan lengkap\n\n"
-        "⚡ *v5.2: MDP + MultiTF Flip + NaN fix + ATR SL + Ideal Screener + Doji/Volmom 4H*",
+        "⚡ *v5.1: Holiday skip + ATR SL + Ideal Screener + Doji/Volmom 4H*",
         parse_mode="Markdown")
 
 async def flipstatus_cmd(u,c):
@@ -1651,7 +1613,7 @@ async def flipstatus_cmd(u,c):
 
 async def help_cmd(u,c):
     msg1 = (
-        "📖 *IDX QUANT v5.2 — Command List*\n\n"
+        "📖 *IDX QUANT v5.1 — Command List*\n\n"
         "*📊 Signal & Chart:*\n"
         "`/signal KODE [TF]` — Analisis (TF: 5M 15M 30M 1H 4H D W M)\n"
         "`/chart KODE [TF]` — Chart candlestick + indikator\n"
@@ -2736,7 +2698,7 @@ async def pattern_cmd(u, c):
 # ══════════════════════════════════════════════════════════════
 
 MIN_SCORE_IDEAL   = 6      # Score minimum dari 8
-MIN_RR_IDEAL      = 2.5    # Risk/Reward minimum (vs TP3, target R/R 1:3)
+MIN_RR_IDEAL      = 1.5    # Risk/Reward minimum
 RSI_MIN_IDEAL     = 40     # RSI lower bound
 RSI_MAX_IDEAL     = 65     # RSI upper bound (hindari overbought)
 
@@ -3134,13 +3096,6 @@ async def firstgreen_cmd(u, c):
         await m.edit_text(f"❌ Error first green scan: {e}")
 
 
-# ══════════════════════════════════════════════════════════════════
-# MDP — Market Depth Pressure System
-# Hitung net buy/sell pressure per sesi trading IDX
-# 3x sehari: Pra-Buka (08:45), Sesi 1 (11:00), Sesi 2 (15:30)
-# Score: MDP%, CP (Candle Pressure), TWO (Two-way flow), Weight
-# ══════════════════════════════════════════════════════════════════
-
 def calc_mdp_score(code):
     """
     Hitung MDP (Market Depth Pressure) untuk satu saham.
@@ -3454,6 +3409,7 @@ async def mdp_auto_scan(context):
 
 
 
+
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
@@ -3477,7 +3433,7 @@ def run_bot():
     jq.run_repeating(doji_auto_scan,interval=3600,first=600)
     jq.run_repeating(volmom_auto_scan,interval=1800,first=900)
     jq.run_repeating(breakout_alert_scan,interval=1800,first=1200)
-    # MDP auto 3x sehari: 08:45, 11:00, 15:30 WIB
+    # MDP auto 3x sehari
     jq.run_daily(mdp_auto_scan, time=dtime(8,45,tzinfo=WIB))
     jq.run_daily(mdp_auto_scan, time=dtime(11,0,tzinfo=WIB))
     jq.run_daily(mdp_auto_scan, time=dtime(15,30,tzinfo=WIB))
@@ -3500,11 +3456,11 @@ def run_bot():
     if now.weekday()>=5:
         log.info("Bot start " + now.strftime('%A') + " - auto scan OFF")
     else:
-        log.info("IDX QUANT Bot v5.1 polling - Holiday+SL fix aktif")
+        log.info("IDX QUANT Bot v5.2 polling - Holiday+SL fix aktif")
     tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
-    log.info("IDX QUANT v5.1 port " + str(PORT))
+    log.info("IDX QUANT v5.2 port " + str(PORT))
     import threading as _th
     _th.Thread(target=run_flask,daemon=True).start()
     run_bot()
