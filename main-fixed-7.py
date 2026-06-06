@@ -1596,7 +1596,7 @@ def fmt_tp_sl_block(ts, is_idr=True):
 # ══════════════════════════════════════════
 async def start(u,c):
     await u.message.reply_text(
-        "⚡ *IDX QUANT Bot v5.2 — T1MO × Wisdom*\n\n"
+        "⚡ *IDX QUANT Bot v5.1 — T1MO × Wisdom*\n\n"
         "📊 *Chart & Signal:*\n"
         "`/signal BBCA` — Signal + indikator\n"
         "`/signal PLTR D` — Saham US juga bisa!\n"
@@ -1663,7 +1663,11 @@ async def help_cmd(u,c):
         "`/volmom_auto on|off` — Toggle auto volmom\n\n"
         "*🟢 First Green (BARU):*\n"
         "`/firstgreen` — IDX first green 30M/1H/4H/D\n"
-        "`/firstgreen us` — US first green"
+        "`/firstgreen us` — US first green\n\n"
+        "*💧 MDP — Market Depth Pressure (BARU):*\n"
+        "`/mdp` — Scan IDX buy/sell pressure + score\n"
+        "`/mdp us` — Scan US stocks MDP\n"
+        "`/mdp detail KODE` — Detail 1 saham (auto 3x/hari)"
     )
     msg2 = (
         "*🤖 Auto Scan:*\n"
@@ -2411,7 +2415,7 @@ def pixel_dashboard():
     f=os.path.join(os.path.dirname(__file__),"pixel_dashboard.html")
     return send_file(f) if os.path.exists(f) else ("pixel_dashboard.html not found",404)
 @app.route("/health")
-def health(): return jsonify({"status":"ok","version":"v5.2","alerts":len(alerts_db),
+def health(): return jsonify({"status":"ok","version":"v5.1","alerts":len(alerts_db),
                                "auto_users":len(auto_users),"cache_size":len(_data_cache),
                                "idx_market_open":is_idx_market_open(),
                                "us_market_open":is_us_market_open()})
@@ -3488,11 +3492,11 @@ def run_bot():
     if now.weekday()>=5:
         log.info("Bot start " + now.strftime('%A') + " - auto scan OFF")
     else:
-        log.info("IDX QUANT Bot v5.2 polling - Holiday+SL fix aktif")
+        log.info("IDX QUANT Bot v5.1 polling - Holiday+SL fix aktif")
     tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
-    log.info("IDX QUANT v5.2 port " + str(PORT))
+    log.info("IDX QUANT v5.1 port " + str(PORT))
     import threading as _th
     _th.Thread(target=run_flask,daemon=True).start()
     run_bot()
