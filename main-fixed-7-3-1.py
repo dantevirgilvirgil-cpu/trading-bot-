@@ -234,11 +234,19 @@ def get_cached_data(ticker, interval, period):
             return df
     try:
         df = yf.download(ticker, period=period, interval=interval,
-                        progress=False, auto_adjust=True, timeout=15)
+                        progress=False, auto_adjust=True, timeout=15,
+                        group_by="column")
         if df is not None and not df.empty:
             # Flatten MultiIndex columns (yfinance >= 0.2.40)
             if isinstance(df.columns, pd.MultiIndex):
+                # Ambil level pertama (nama kolom), buang level ticker
                 df.columns = df.columns.get_level_values(0)
+            # Pastikan kolom standard ada
+            needed = ["Open","High","Low","Close","Volume"]
+            if not all(c in df.columns for c in needed):
+                return pd.DataFrame()
+            df = df[needed].copy()
+            df.dropna(subset=["Close"], inplace=True)
             _data_cache[key] = (now, df)
         return df if df is not None else pd.DataFrame()
     except:
