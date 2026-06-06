@@ -235,17 +235,10 @@ def get_cached_data(ticker, interval, period):
     try:
         df = yf.download(ticker, period=period, interval=interval,
                         progress=False, auto_adjust=True)
-        if df is not None and not df.empty:
-            # Fix yfinance MultiIndex (versi >= 0.2.40)
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(-1)
-            # Normalize kolom jadi Title Case — sama seperti sniper bot
-            df.columns = [c.title() for c in df.columns]
-            _data_cache[key] = (now, df)
-            return df
-        return pd.DataFrame()
+        _data_cache[key] = (now, df)
+        return df
     except Exception as e:
-        log.error(f"yfinance fetch GAGAL [{ticker} {interval} {period}]: {e}")
+        log.error(f"yfinance GAGAL [{ticker} {interval} {period}]: {e}")
         return pd.DataFrame()
 
 def get_signal(code,tf="D"):
