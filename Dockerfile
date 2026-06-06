@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "main-fixed-8.py"]
+CMD ["python", "main-fixed-8-final.py"]
