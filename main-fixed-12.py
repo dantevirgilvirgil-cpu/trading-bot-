@@ -238,13 +238,14 @@ def get_cached_data(ticker, interval, period):
         if df is not None and not df.empty:
             # Fix yfinance MultiIndex (versi >= 0.2.40)
             if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+                df.columns = df.columns.get_level_values(-1)
             # Normalize kolom jadi Title Case — sama seperti sniper bot
             df.columns = [c.title() for c in df.columns]
             _data_cache[key] = (now, df)
             return df
         return pd.DataFrame()
-    except:
+    except Exception as e:
+        log.error(f"yfinance fetch GAGAL [{ticker} {interval} {period}]: {e}")
         return pd.DataFrame()
 
 def get_signal(code,tf="D"):
@@ -257,6 +258,10 @@ def get_signal(code,tf="D"):
             ticker=code.upper()
             df = get_cached_data(ticker, iv, per)
         if df.empty or len(df)<5: return{"error":"Data kurang"}
+        # Extra guard: fix MultiIndex kalau lolos dari cache
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(-1)
+        df.columns = [col.title() for col in df.columns]
         c=df["Close"].squeeze(); h=df["High"].squeeze()
         l=df["Low"].squeeze(); v=df["Volume"].squeeze()
         e9=ema(c,9); e20=ema(c,20); e50=ema(c,50)
@@ -301,7 +306,9 @@ def get_signal(code,tf="D"):
                "liquid":liquid,"liquidity_tag":liquidity_tag,
                "df":df,"ema9":e9,"ema20":e20,"ema50":e50,"rsi_s":r,
                "macd_l":ml,"macd_sg":sg,"macd_h":hs,"stoch_k":sk,"stoch_d":sd}
-    except Exception as e: return{"error":str(e)}
+    except Exception as e:
+        log.error(f"get_signal ERROR [{code} {tf}]: {e}")
+        return{"error":str(e)}
 
 # ══ VOLUME SPIKE DETECTION ══
 def detect_volume_spike(code, tf="5M", threshold=2.0):
