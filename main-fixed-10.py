@@ -234,7 +234,7 @@ def get_cached_data(ticker, interval, period):
             return df
     try:
         df = yf.download(ticker, period=period, interval=interval,
-                        progress=False, auto_adjust=True, timeout=15)
+                        progress=False, auto_adjust=True)
         if df is not None and not df.empty:
             # Fix yfinance MultiIndex (versi >= 0.2.40)
             if isinstance(df.columns, pd.MultiIndex):
@@ -242,7 +242,8 @@ def get_cached_data(ticker, interval, period):
             # Normalize kolom jadi Title Case — sama seperti sniper bot
             df.columns = [c.title() for c in df.columns]
             _data_cache[key] = (now, df)
-        return df if df is not None else pd.DataFrame()
+            return df
+        return pd.DataFrame()
     except:
         return pd.DataFrame()
 
