@@ -1607,6 +1607,10 @@ async def start(u,c):
         "🟢 *First Green Screener (BARU):*\n"
         "`/firstgreen` — IDX: candle hijau pertama setelah ≥2 merah (30M/1H/4H/D)\n"
         "`/firstgreen us` — US stocks first green\n\n"
+        "💧 *MDP — Market Depth Pressure (BARU):*\n"
+        "`/mdp` — Scan IDX buy/sell pressure + score\n"
+        "`/mdp us` — Scan US stocks MDP\n"
+        "`/mdp detail KODE` — Detail 1 saham (auto 3x/hari)\n\n"
         "🤖 *Auto Scan:*\n"
         "`/auto on` — Aktifkan auto scan\n"
         "`/auto off` — Matikan auto scan\n\n"
@@ -3101,6 +3105,326 @@ async def firstgreen_cmd(u, c):
         await m.edit_text(f"❌ Error first green scan: {e}")
 
 
+# MDP — Market Depth Pressure System
+# Hitung net buy/sell pressure per sesi trading IDX
+# 3x sehari: Pra-Buka (08:45), Sesi 1 (11:00), Sesi 2 (15:30)
+# Score: MDP%, CP (Candle Pressure), TWO (Two-way flow), Weight
+# ══════════════════════════════════════════════════════════════════
+
+def calc_mdp_score(code):
+    """
+    Hitung MDP (Market Depth Pressure) untuk satu saham.
+    Pakai data intraday 1H + Daily untuk cross-validate.
+
+    Returns dict:
+        mdp_pct   : net buy pressure % (-100 to +100)
+        cp        : candle pressure score (-100 to +100)
+        two       : two-way flow score (0-100, makin tinggi makin dua arah)
+        weight    : relative weight vs universe
+        score_mdp : integer 0-10 (probability naik)
+        price, chg, vol_ratio, rsi, trend
+    """
+    import math
+    try:
+        ticker = get_ticker(code)
+        # Ambil data 1H 30 hari + Daily 1 tahun
+        df_h  = get_cached_data(ticker, "60m", "30d")
+        df_d  = get_cached_data(ticker, "1d",  "1y")
+        if df_h.empty or len(df_h) < 10: return None
+        if df_d.empty or len(df_d) < 20: return None
+
+        c_h = df_h["Close"].squeeze()
+        h_h = df_h["High"].squeeze()
+        l_h = df_h["Low"].squeeze()
+        v_h = df_h["Volume"].squeeze()
+        c_d = df_d["Close"].squeeze()
+        v_d = df_d["Volume"].squeeze()
+
+        price  = float(c_h.iloc[-1])
+        pc     = float(c_h.iloc[-2]) if len(c_h) >= 2 else price
+        if math.isnan(price) or price <= 0: return None
+
+        chg    = (price - pc) / pc * 100 if pc > 0 else 0.0
+
+        # ── 1. Candle Pressure (CP) ──
+        # Ratio candle bullish vs bearish di 20 candle terakhir (1H)
+        tail20 = df_h.tail(20)
+        bull_c = (tail20["Close"] > tail20["Open"]).sum()
+        bear_c = (tail20["Close"] < tail20["Open"]).sum()
+        total_c = bull_c + bear_c
+        cp = round((bull_c - bear_c) / total_c * 100, 1) if total_c > 0 else 0.0
+
+        # ── 2. MDP% — Net Buy Pressure ──
+        # Proxy: upper shadow kecil + close dekat high = buy pressure
+        # Formula: (Close - Low) / (High - Low) → "buying tail ratio"
+        ranges = (h_h - l_h).tail(20)
+        closes = c_h.tail(20)
+        lows   = l_h.tail(20)
+        buy_tail = (closes - lows) / ranges.replace(0, np.nan)
+        buy_tail = buy_tail.fillna(0.5)
+        # Scale ke -100..+100: 0.5 = netral
+        mdp_pct = round((buy_tail.mean() - 0.5) * 200, 1)
+
+        # ── 3. Volume pressure — weight terhadap avg ──
+        avg_vol_d = float(v_d.tail(20).mean())
+        last_vol  = float(v_d.iloc[-1]) if not v_d.empty else 0
+        vol_ratio = last_vol / avg_vol_d if avg_vol_d > 0 else 1.0
+        weight    = round(min(vol_ratio * 10, 100), 1)  # cap 100
+
+        # ── 4. Two-way flow (TWO) ──
+        # Makin tinggi = dua arah (volatile), makin rendah = one-sided
+        # Pakai std candle body / avg price sebagai proxy
+        bodies = abs(df_h["Close"] - df_h["Open"]).tail(20)
+        avg_body = bodies.mean()
+        two = round(min(avg_body / price * 1000, 100), 1) if price > 0 else 0.0
+
+        # ── 5. Trend dari Daily ──
+        e9_d  = ema(c_d, 9)
+        e20_d = ema(c_d, 20)
+        e50_d = ema(c_d, 50)
+        le9   = float(e9_d.iloc[-1])
+        le20  = float(e20_d.iloc[-1])
+        le50  = float(e50_d.iloc[-1])
+        if math.isnan(le9):  le9  = price
+        if math.isnan(le20): le20 = price
+        if math.isnan(le50): le50 = price
+        trend = "UP" if price > le20 > le50 else "DN" if price < le20 < le50 else "SW"
+
+        # ── 6. RSI dari Daily ──
+        r_d  = rsi(c_d)
+        lr_d = float(r_d.iloc[-1]) if not r_d.empty else 50.0
+        if math.isnan(lr_d): lr_d = 50.0
+
+        # ── 7. Score MDP (0-10) — probability naik ──
+        # Komponen:
+        sc = 0
+        if mdp_pct > 20:  sc += 2   # strong buy pressure
+        elif mdp_pct > 5: sc += 1   # mild buy pressure
+        if cp > 30:  sc += 2         # candle dominan bullish
+        elif cp > 10: sc += 1
+        if trend == "UP": sc += 2    # uptrend daily
+        elif trend == "SW": sc += 1
+        if 40 < lr_d < 70: sc += 1  # RSI zona sehat
+        elif lr_d < 35:    sc += 1  # oversold potential bounce
+        if vol_ratio > 1.5: sc += 1 # volume naik
+        if chg > 0:         sc += 1 # green hari ini
+
+        is_idx = ticker.endswith(".JK")
+        liquid = is_liquid_stock(avg_vol_d, price) if is_idx else True
+
+        return {
+            "code":      code.upper(),
+            "ticker":    ticker,
+            "price":     price,
+            "chg":       chg,
+            "mdp_pct":   mdp_pct,
+            "cp":        cp,
+            "two":       two,
+            "weight":    weight,
+            "score_mdp": sc,
+            "trend":     trend,
+            "rsi":       lr_d,
+            "vol_ratio": vol_ratio,
+            "liquid":    liquid,
+        }
+    except Exception as e:
+        return None
+
+
+def mdp_scan(stock_list, min_score=5, max_workers=12):
+    """Scan MDP untuk semua saham secara paralel."""
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(calc_mdp_score, c): c for c in stock_list}
+        for f in as_completed(futures):
+            try:
+                r = f.result(timeout=20)
+                if r and r["score_mdp"] >= min_score and r.get("liquid", True):
+                    results.append(r)
+            except Exception: pass
+    results.sort(key=lambda x: (x["score_mdp"], x["mdp_pct"]), reverse=True)
+    return results
+
+
+def fmt_mdp_msg(results, market="IDX", session_label=""):
+    """Format pesan MDP untuk Telegram."""
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    flag = "🇮🇩" if market == "IDX" else "🇺🇸"
+    lines = [
+        f"💧 *MDP SCREENER — {flag} {market}*",
+        f"🕐 {now_str}" + (f" | {session_label}" if session_label else ""),
+        f"📊 Kriteria: Score MDP ≥ 5 | Liquid | Sorted by pressure",
+        "━━━━━━━━━━━━━━━━━━━━",
+        f"{'No':<3} {'Kode':<8} {'Harga':>8} {'Chg':>7} | {'MDP%':>6} {'CP':>6} {'TWO':>5} | Sc",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+    if not results:
+        lines.append("❌ Tidak ada saham memenuhi kriteria MDP saat ini.")
+    else:
+        for i, r in enumerate(results[:25], 1):
+            is_idr = r["ticker"].endswith(".JK")
+            px     = f"{r['price']:,.0f}" if is_idr else f"{r['price']:.2f}"
+            chg_s  = f"{r['chg']:+.1f}%"
+            mdp_s  = f"{r['mdp_pct']:+.1f}"
+            cp_s   = f"{r['cp']:+.1f}"
+            two_s  = f"{r['two']:.1f}"
+            sc_s   = f"{r['score_mdp']}/10"
+            trend_icon = "⬆" if r["trend"]=="UP" else "⬇" if r["trend"]=="DN" else "↔"
+            lines.append(
+                f"{i:<3} *{r['code']:<7}* `{px:>8}` `{chg_s:>7}` | "
+                f"`{mdp_s:>6}` `{cp_s:>6}` `{two_s:>5}` | `{sc_s}` {trend_icon}"
+            )
+    lines += [
+        "━━━━━━━━━━━━━━━━━━━━",
+        "📌 *Keterangan kolom:*",
+        "  MDP% = net buy pressure (-100 s/d +100)",
+        "  CP   = candle pressure (bullish dominan)",
+        "  TWO  = two-way flow (volatilitas)",
+        "  Sc   = score probabilitas naik (0-10)",
+        f"💡 Ketik `/mdp detail KODE` untuk analisis 1 saham",
+    ]
+    return "\n".join(lines)
+
+
+async def mdp_cmd(u, c):
+    """
+    /mdp [us] [min_score]   — MDP screener IDX atau US
+    /mdp detail KODE        — Detail MDP 1 saham
+    """
+    args = c.args or []
+    # Detail mode: /mdp detail KODE
+    if args and args[0].lower() == "detail":
+        code = args[1].upper() if len(args) > 1 else None
+        if not code:
+            await u.message.reply_text("❓ Format: `/mdp detail KODE`\nContoh: `/mdp detail BBCA`",
+                                       parse_mode="Markdown")
+            return
+        m = await u.message.reply_text(f"⏳ Hitung MDP untuk *{code}*...", parse_mode="Markdown")
+        loop = asyncio.get_event_loop()
+        r = await loop.run_in_executor(None, calc_mdp_score, code)
+        if not r:
+            await m.edit_text(f"❌ Gagal ambil data MDP untuk *{code}*", parse_mode="Markdown")
+            return
+        is_idr = r["ticker"].endswith(".JK")
+        px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+        now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+        trend_icon = "⬆ UPTREND" if r["trend"]=="UP" else "⬇ DOWNTREND" if r["trend"]=="DN" else "↔ SIDEWAYS"
+        mdp_bar = "█" * max(0, min(10, int((r["mdp_pct"]+100)/20))) + "░" * (10 - max(0, min(10, int((r["mdp_pct"]+100)/20))))
+        msg = (
+            f"💧 *MDP DETAIL — {r['code']}*\n"
+            f"🕐 {now_str}\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💰 Harga: `{px}` {r['chg']:+.2f}%\n"
+            f"📈 Trend: {trend_icon}\n"
+            f"🔵 RSI: `{r['rsi']:.1f}`\n"
+            f"📦 Volume: `{r['vol_ratio']:.1f}x` avg\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"💧 *MDP%*: `{r['mdp_pct']:+.1f}` — Net Buy Pressure\n"
+            f"   [{mdp_bar}]\n"
+            f"🕯 *CP*: `{r['cp']:+.1f}` — Candle Pressure\n"
+            f"🔀 *TWO*: `{r['two']:.1f}` — Two-way Flow\n"
+            f"⚖️ *Weight*: `{r['weight']:.1f}`\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 *Score MDP*: `{r['score_mdp']}/10`\n"
+        )
+        # Score interpretation
+        if r["score_mdp"] >= 8:
+            msg += "✅ *STRONG BUY PRESSURE* — probabilitas naik tinggi\n"
+        elif r["score_mdp"] >= 6:
+            msg += "🟡 *MODERATE BUY* — perlu konfirmasi volume\n"
+        elif r["score_mdp"] >= 4:
+            msg += "⚪ *NETRAL* — tunggu sinyal lebih jelas\n"
+        else:
+            msg += "🔴 *SELL PRESSURE* — hindari entry\n"
+        await m.edit_text(msg, parse_mode="Markdown")
+        return
+
+    # Screener mode
+    market = "us" if (args and args[0].lower() == "us") else "idx"
+    try:
+        min_sc = int(args[-1]) if args and args[-1].isdigit() else 5
+    except: min_sc = 5
+    flag  = "🇺🇸" if market == "us" else "🇮🇩"
+    label = "US" if market == "us" else "IDX"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+
+    # Session label
+    now_wib = datetime.now(WIB)
+    h = now_wib.hour
+    if h < 10:   sess = "📅 Pra-Buka"
+    elif h < 12: sess = "🌅 Sesi 1"
+    elif h < 14: sess = "🌞 Istirahat"
+    elif h < 16: sess = "🌆 Sesi 2"
+    else:        sess = "🌙 After-Hours"
+
+    m = await u.message.reply_text(
+        f"⏳ Scanning MDP {flag} {label}... (bisa 30-60 detik)",
+        parse_mode="Markdown")
+    try:
+        loop = asyncio.get_event_loop()
+        results = await loop.run_in_executor(
+            None, lambda: mdp_scan(stocks, min_score=min_sc))
+        msg = fmt_mdp_msg(results, label, sess)
+        await m.edit_text(msg, parse_mode="Markdown")
+        # Kirim chart top pick
+        if results:
+            best = results[0]
+            buf, _ = generate_chart(best["code"], "D")
+            if buf:
+                is_idr = best["ticker"].endswith(".JK")
+                px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+                await u.message.reply_photo(
+                    photo=buf,
+                    caption=(f"💧 MDP TOP PICK: *{best['code']}*\n"
+                             f"`{px}` {best['chg']:+.2f}%\n"
+                             f"MDP:`{best['mdp_pct']:+.1f}` CP:`{best['cp']:+.1f}` "
+                             f"TWO:`{best['two']:.1f}` Score:`{best['score_mdp']}/10`\n"
+                             f"📈 Trend: {best['trend']} | RSI:`{best['rsi']:.1f}` "
+                             f"Vol:`{best['vol_ratio']:.1f}x`"),
+                    parse_mode="Markdown")
+    except Exception as e:
+        await m.edit_text(f"❌ Error MDP scan: {e}")
+
+
+async def mdp_auto_scan(context):
+    """Auto scan MDP 3x sehari: 08:45, 11:00, 15:30 WIB"""
+    if not is_idx_trading_day(): return
+    if not auto_users: return
+    bot = context.bot
+    now_wib = datetime.now(WIB)
+    h, mn = now_wib.hour, now_wib.minute
+    # Tentukan session label
+    if h == 8:   sess = "📅 Pra-Buka (08:45)"
+    elif h == 11: sess = "🌅 Sesi 1 (11:00)"
+    elif h == 15: sess = "🌆 Sesi 2 (15:30)"
+    else: return  # bukan jam auto
+
+    now_str = now_wib.strftime("%d-%b-%Y %H:%M WIB")
+    results = mdp_scan(IDX_STOCKS, min_score=6)
+    if not results: return
+    msg = fmt_mdp_msg(results[:15], "IDX", sess)
+    for uid in auto_users:
+        try:
+            await bot.send_message(int(uid), msg, parse_mode="Markdown")
+            if results:
+                best = results[0]
+                buf, _ = generate_chart(best["code"], "D")
+                if buf:
+                    is_idr = best["ticker"].endswith(".JK")
+                    px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+                    await bot.send_photo(
+                        int(uid), photo=buf,
+                        caption=(f"💧 MDP TOP: *{best['code']}* {sess}\n"
+                                 f"`{px}` {best['chg']:+.2f}% | "
+                                 f"Score:`{best['score_mdp']}/10` | "
+                                 f"MDP:`{best['mdp_pct']:+.1f}`\n{now_str}"),
+                        parse_mode="Markdown")
+        except Exception as e:
+            log.error(f"MDP auto uid {uid}: {e}")
+
+
+
+
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
@@ -3111,6 +3435,7 @@ def run_bot():
           ("screener_ideal",screener_ideal_cmd),
           ("doji",doji_cmd),("volmom",volmom_cmd),
           ("firstgreen",firstgreen_cmd),
+          ("mdp",mdp_cmd),
           ("pattern",pattern_cmd),
           ("auto",auto_cmd),
           ("doji_auto",doji_auto_cmd),
@@ -3126,6 +3451,9 @@ def run_bot():
 
     # ══ IDEAL SCREENER AUTO SCHEDULE ══
     # Market open pagi IDX: 09:05 WIB
+    jq.run_daily(mdp_auto_scan, time=dtime(8,45,tzinfo=WIB))
+    jq.run_daily(mdp_auto_scan, time=dtime(11,0,tzinfo=WIB))
+    jq.run_daily(mdp_auto_scan, time=dtime(15,30,tzinfo=WIB))
     jq.run_daily(ideal_screener_auto, time=dtime(9,5,tzinfo=WIB))
     # Market close IDX: 15:20 WIB
     jq.run_daily(ideal_screener_auto, time=dtime(15,20,tzinfo=WIB))
