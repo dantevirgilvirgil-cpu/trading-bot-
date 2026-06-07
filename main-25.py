@@ -257,7 +257,7 @@ def get_signal(code,tf="D"):
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(-1)
         df.columns = [c.title() for c in df.columns]
-        if "Close" not in df.columns: return{"error":"Data kurang"}
+        if "Close" not in df.columns: return{"error":f"Cols={df.columns.tolist()}"}
         c=df["Close"].squeeze(); h=df["High"].squeeze()
         l=df["Low"].squeeze(); v=df["Volume"].squeeze()
         e9=ema(c,9); e20=ema(c,20); e50=ema(c,50)
