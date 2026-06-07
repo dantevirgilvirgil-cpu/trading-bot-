@@ -242,7 +242,6 @@ def get_cached_data(ticker, interval, period):
             _data_cache[key] = (now, df)
         return df if df is not None else pd.DataFrame()
     except Exception as e:
-        import logging; logging.getLogger(__name__).error(f"yfinance GAGAL [{ticker}]: {e}")
         return pd.DataFrame()
 
 def get_signal(code,tf="D"):
@@ -255,13 +254,10 @@ def get_signal(code,tf="D"):
             ticker=code.upper()
             df = get_cached_data(ticker, iv, per)
         if df.empty or len(df)<5: return{"error":"Data kurang"}
-        # Guard MultiIndex
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(-1)
-        if not isinstance(df.columns[0], str):
-            df.columns = [str(c) for c in df.columns]
         df.columns = [c.title() for c in df.columns]
-        if "Close" not in df.columns: return{"error":"Kolom Close tidak ada"}
+        if "Close" not in df.columns: return{"error":"Data kurang"}
         c=df["Close"].squeeze(); h=df["High"].squeeze()
         l=df["Low"].squeeze(); v=df["Volume"].squeeze()
         e9=ema(c,9); e20=ema(c,20); e50=ema(c,50)
@@ -272,7 +268,12 @@ def get_signal(code,tf="D"):
         lh=float(hs.iloc[-1]); ph=float(hs.iloc[-2]); lsk=float(sk.iloc[-1])
         lv=float(v.iloc[-1]); av=float(v.tail(20).mean()); vr=lv/av if av>0 else 1
         chg=(lc-pc)/pc*100; sigs=[]; sc=0
-        if lc>le9>le20>le50: sigs.append("🦅 HAWK1 - EMA Stack Bullish"); sc+=3
+        # ✅ FIX: HAWK1 butuh EMA stack + RSI tidak overbought + STOCH tidak overbought
+        if lc>le9>le20>le50 and lr<75 and lsk<80:
+            sigs.append("🦅 HAWK1 - EMA Stack Bullish"); sc+=3
+        elif lc>le9>le20>le50:
+            # EMA stack oke tapi overbought — score sama HAWK1 tapi label beda
+            sigs.append("🟢 GREEN BULL - EMA Stack OB"); sc+=3
         elif lc>le20>le50: sigs.append("🟢 GREEN BULL - Di atas MA20&50"); sc+=2
         elif lc>le9 and le9>le20: sigs.append("⬆ BREAK TOP - EMA9 cross MA20"); sc+=2
         if lm>ls and ph<0 and lh>0: sigs.append("🔵 MACD Golden Cross"); sc+=2
@@ -283,7 +284,7 @@ def get_signal(code,tf="D"):
         if vr>2: sigs.append(f"🌊 BUY LAUTAN - Volume {vr:.1f}x"); sc+=2
         elif vr>1.5: sigs.append(f"📈 Volume {vr:.1f}x avg"); sc+=1
         if lsk<20: sigs.append(f"🟣 BUY MAGENTA - Stoch ({lsk:.1f})"); sc+=1
-        elif lsk>80: sigs.append(f"⚠️ Stoch OB ({lsk:.1f})")
+        elif lsk>80: sigs.append(f"⚠️ Stoch OB ({lsk:.1f})"); sc-=1
         trend="UPTREND ⬆" if lc>le50 else "DOWNTREND ⬇" if lc<le50 else "SIDEWAYS ↔"
         is_idx = ticker.endswith(".JK")
         liquid = is_liquid_stock(av, lc) if is_idx else True
@@ -1174,6 +1175,11 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.plot([x0, x1],[u["y0"], u["y1"]],
                      color="#f39c12", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
                      label="Upper TL")
+            # Label harga di ujung Upper TL
+            ax1.text(x1 + 0.3, u["y1"], f'Rp {u["y1"]:,.0f}'.replace(',','.'),
+                     color='#f39c12', fontsize=6.5, va='center', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#f39c12', alpha=0.85, linewidth=0.8),
+                     zorder=10)
             # Pivot arrows (ganti titik → panah kecil)
             for px2, py2 in zip([tl_offset+px3 for px3 in u["pivot_x"]], u["pivot_y"]):
                 ax1.annotate('', xy=(px2, py2), xytext=(px2, py2 * 1.012),
@@ -1186,6 +1192,11 @@ def generate_chart(code, tf="D", volume_spikes=None):
             ax1.plot([x0, x1],[lo2["y0"], lo2["y1"]],
                      color="#27ae60", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7,
                      label="Lower TL")
+            # Label harga di ujung Lower TL
+            ax1.text(x1 + 0.3, lo2["y1"], f'Rp {lo2["y1"]:,.0f}'.replace(',','.'),
+                     color='#27ae60', fontsize=6.5, va='center', fontweight='bold',
+                     bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#27ae60', alpha=0.85, linewidth=0.8),
+                     zorder=10)
             for px2, py2 in zip([tl_offset+px3 for px3 in lo2["pivot_x"]], lo2["pivot_y"]):
                 ax1.annotate('', xy=(px2, py2), xytext=(px2, py2 * 0.988),
                     arrowprops=dict(arrowstyle='->', color='#27ae60', lw=1.2),
