@@ -254,7 +254,14 @@ def get_signal(code,tf="D"):
         if (df.empty or len(df)<26) and ticker.endswith(".JK"):
             ticker=code.upper()
             df = get_cached_data(ticker, iv, per)
-        if df.empty or len(df)<26: return{"error":"Data kurang"}
+        if df.empty or len(df)<5: return{"error":"Data kurang"}
+        # Guard MultiIndex
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(-1)
+        if not isinstance(df.columns[0], str):
+            df.columns = [str(c) for c in df.columns]
+        df.columns = [c.title() for c in df.columns]
+        if "Close" not in df.columns: return{"error":"Kolom Close tidak ada"}
         c=df["Close"].squeeze(); h=df["High"].squeeze()
         l=df["Low"].squeeze(); v=df["Volume"].squeeze()
         e9=ema(c,9); e20=ema(c,20); e50=ema(c,50)
