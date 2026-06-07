@@ -224,6 +224,56 @@ def get_ticker(code):
 _data_cache = {}
 _cache_ttl = 300  # 5 menit
 
+def _fetch_yahoo_direct(ticker, interval, period):
+    """Fetch langsung dari Yahoo Finance API tanpa yfinance library"""
+    try:
+        import requests, time as _time
+        # Map period ke range
+        range_map = {"1d":"1d","2d":"2d","5d":"5d","7d":"7d","8d":"8d",
+                     "10d":"10d","25d":"1mo","1mo":"1mo","2mo":"2mo",
+                     "3mo":"3mo","6mo":"6mo","1y":"1y","2y":"2y","5y":"5y"}
+        # Map interval ke Yahoo format
+        iv_map = {"1d":"1d","1wk":"1wk","1mo":"1mo",
+                  "60m":"60m","30m":"30m","15m":"15m","5m":"5m"}
+        yrange = range_map.get(period, "1y")
+        yiv    = iv_map.get(interval, "1d")
+        url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+               f"?range={yrange}&interval={yiv}&events=history")
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Accept": "application/json",
+        }
+        r = requests.get(url, headers=headers, timeout=15)
+        if r.status_code != 200:
+            # Fallback ke query2
+            url2 = url.replace("query1", "query2")
+            r = requests.get(url2, headers=headers, timeout=15)
+        if r.status_code != 200:
+            log.error(f"Yahoo API {r.status_code} [{ticker}]")
+            return pd.DataFrame()
+        data = r.json()
+        result = data.get("chart", {}).get("result", [])
+        if not result:
+            log.warning(f"Yahoo API empty result [{ticker}]")
+            return pd.DataFrame()
+        res    = result[0]
+        ts_raw = res["timestamp"]
+        ohlcv  = res["indicators"]["quote"][0]
+        adjclose = res["indicators"].get("adjclose", [{}])[0].get("adjclose", ohlcv["close"])
+        df = pd.DataFrame({
+            "Open":   ohlcv["open"],
+            "High":   ohlcv["high"],
+            "Low":    ohlcv["low"],
+            "Close":  adjclose,
+            "Volume": ohlcv["volume"],
+        }, index=pd.to_datetime(ts_raw, unit="s", utc=True).tz_convert("Asia/Jakarta" if ticker.endswith(".JK") else "America/New_York"))
+        df.index.name = "Date"
+        df = df.dropna(subset=["Close"])
+        return df
+    except Exception as e:
+        log.error(f"Yahoo direct fetch error [{ticker}]: {e}")
+        return pd.DataFrame()
+
 def get_cached_data(ticker, interval, period):
     """Return cached yfinance data kalau masih fresh"""
     key = f"{ticker}_{interval}_{period}"
@@ -232,14 +282,23 @@ def get_cached_data(ticker, interval, period):
         ts, df = _data_cache[key]
         if now - ts < _cache_ttl:
             return df
+    # Coba yf.download dulu
+    df = pd.DataFrame()
     try:
         df = yf.download(ticker, period=period, interval=interval,
                         progress=False, auto_adjust=True)
-        _data_cache[key] = (now, df)
-        return df
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(-1)
+        df.columns = [c.title() for c in df.columns]
     except Exception as e:
-        log.error(f"yfinance GAGAL [{ticker} {interval} {period}]: {e}")
-        return pd.DataFrame()
+        log.warning(f"yf.download gagal [{ticker}]: {e}")
+    # Kalau kosong, fallback ke direct HTTP
+    if df is None or df.empty:
+        log.info(f"Fallback direct fetch [{ticker} {interval} {period}]")
+        df = _fetch_yahoo_direct(ticker, interval, period)
+    if df is not None and not df.empty:
+        _data_cache[key] = (now, df)
+    return df if df is not None else pd.DataFrame()
 
 def get_signal(code,tf="D"):
     iv,per=TF_MAP.get(tf.upper(),("1d","1y"))
@@ -3187,25 +3246,30 @@ async def debug_cmd(u, c):
     """Command /debug — test yfinance fetch langsung"""
     await u.message.reply_text("Testing yfinance...")
     results = []
+    import time
     tests = [
         ("BBRI.JK", "1d", "5d"),
-        ("BBRI.JK", "1d", "1mo"),
         ("MU",      "60m", "5d"),
         ("AAPL",    "1d", "5d"),
     ]
     for ticker, interval, period in tests:
+        # Test yf.download
         try:
-            import time
             t0 = time.time()
             df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
             elapsed = time.time() - t0
-            if df is None or df.empty:
-                results.append(f"❌ {ticker} {interval}/{period}: EMPTY ({elapsed:.1f}s)")
-            else:
-                cols = df.columns.tolist()
-                results.append(f"✅ {ticker} {interval}/{period}: {len(df)} rows, cols={cols} ({elapsed:.1f}s)")
+            tag = f"yf({'OK' if not df.empty else 'EMPTY'},{elapsed:.1f}s)"
         except Exception as e:
-            results.append(f"💥 {ticker} {interval}/{period}: {e}")
+            tag = f"yf(ERR:{str(e)[:20]})"
+        # Test direct HTTP
+        try:
+            t0 = time.time()
+            df2 = _fetch_yahoo_direct(ticker, interval, period)
+            elapsed2 = time.time() - t0
+            tag2 = f"direct({'OK:'+str(len(df2))+'rows' if not df2.empty else 'EMPTY'},{elapsed2:.1f}s)"
+        except Exception as e2:
+            tag2 = f"direct(ERR:{str(e2)[:20]})"
+        results.append(f"{ticker}: {tag} | {tag2}")
     
     msg = "\n".join(results)
     await u.message.reply_text(f"yfinance debug:\n{msg}")
