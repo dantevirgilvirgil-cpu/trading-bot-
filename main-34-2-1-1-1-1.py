@@ -31,81 +31,19 @@ TF_MAP={"5M":("5m","5d"),"15M":("15m","5d"),"30M":("30m","10d"),
         "W":("1wk","5y"),"M":("1mo","10y")}
 
 # ══ STOCK LISTS ══
-IDX_STOCKS=[
-    # ══ BANKING ══
-    "BBCA","BBRI","BMRI","BBNI","BRIS","BTPS","BNGA","NISP","BDMN","MEGA",
-    "PNBN","ARTO","BBYB","AGRO","BJTM","BJBR",
-    # ══ TELCO & TECH ══
-    "TLKM","ISAT","MTEL","EXCL","GOTO","EMTK","FILM","NFCX","SLIS","DMMX",
-    # ══ ENERGY & COAL ══
-    "ADRO","BYAN","PTBA","ITMG","HRUM","INDY","BSSR","DEWA","FIRE","RAJA",
-    "PTRO","ELSA","PGAS","MEDC","ENRG","ADMR","RUIS",
-    # ══ MINING & METAL ══
-    "ANTM","INCO","NCKL","MBMA","MDKA","TINS","ZINC","NICK","DKFT","HAIS",
-    "AMMN","AMNT","PSAB","PNRE","CITA",
-    # ══ PLANTATION & AGRI ══
-    "AALI","LSIP","SSMS","DSNG","TAPG","SGRO","PALM","BWPT","TBLA",
-    # ══ CONSUMER & RETAIL ══
-    "ICBP","INDF","UNVR","MYOR","CLEO","ACES","MAPA","RALS","AMRT","HERO",
-    "HMSP","GGRM","WIIM","SIDO","KLBF","KAEF","TSPC","MIKA","HEAL",
-    # ══ PROPERTY & KONSTRUKSI ══
-    "CTRA","BSDE","SMRA","PWON","KIJA","LPKR","ASRI","PANI","MDLN","DMAS",
-    "WIKA","WSKT","PTPP","ADHI","TOTL",
-    # ══ INDUSTRI & MANUFAKTUR ══
-    "ASII","ASTRA","INTP","SMGR","WTON","TPIA","BRPT","INKP","TKIM","FASW",
-    "SMBR","CPIN","JPFA","MAIN","BISI","GJTL","AUTO","SMSM","IMAS","LPIN",
-    # ══ INFRASTRUKTUR & TRANSPORTASI ══
-    "JSMR","BULL","TMAS","SMDR","MBSS","TRUK","BPJT",
-    # ══ TELEKOMUNIKASI & MEDIA ══
-    "SCMA","MNCN","KPIG",
-    # ══ KEUANGAN NON-BANK ══
-    "PNIN","MFIN","BFIN","WOMF","BPFI",
-    # ══ DIVERSIFIED & KONGLOMERAT ══
-    "CUAN","PACK","BSBK",
-]
+IDX_STOCKS=["ADMR","ENRG","ANTM","NCKL","MBMA","PTBA","MEDC","BULL","TMAS","INCO",
+            "MDKA","ITMG","AALI","TAPG","ELSA","SMDR","ADRO","INDY","BSSR","RAJA",
+            "DEWA","DSNG","GOTO","TLKM","BBRI","BBCA","BMRI","PGAS","BYAN","HRUM",
+            "FIRE","TINS","ZINC","KIJA","LSIP","SSMS","SLIS","NFCX","CUAN","NICK",
+            "PTRO","BSBK","PACK","TPIA","EMTK","FILM","ACES","MAPA","MTEL","ISAT"]
 
 # ✅ FIX: Hapus duplikat MU, tambah SNDK/COHR/GLW
-US_STOCKS=[
-    # ══ MAG 7 + MEGA CAP ══
-    "AAPL","MSFT","NVDA","GOOGL","GOOG","AMZN","META","TSLA","AVGO","BRK.B",
-    # ══ QQQ TOP HOLDINGS ══
-    "AMD","QCOM","INTC","TXN","MU","AMAT","LRCX","KLAC","MRVL","NXPI",
-    "ON","ADI","MCHP","MPWR","SWKS","ENPH","FSLR",
-    "CSCO","ORCL","IBM","ACN","NOW","CRM","ADBE","INTU","WDAY","TEAM",
-    "SNPS","CDNS","ANSS","PTC","FTNT","PANW","CRWD","NET","ZS","OKTA",
-    "ABNB","BKNG","EXPE","LYFT","UBER","DASH",
-    "NFLX","SPOT","WBD","PARA","DIS",
-    "PYPL","SQ","AFRM","SOFI","HOOD","COIN","MSTR",
-    # ══ S&P 500 BLUE CHIPS ══
-    "JPM","BAC","WFC","GS","MS","C","AXP","BLK","SCHW","V","MA",
-    "UNH","JNJ","PFE","MRK","ABBV","LLY","BMY","AMGN","GILD","BIIB",
-    "XOM","CVX","COP","SLB","EOG","PSX","VLO","MPC",
-    "CAT","DE","HON","GE","MMM","RTX","LMT","NOC","GD","BA",
-    "COST","WMT","TGT","HD","LOW","NKE","SBUX","MCD","YUM",
-    "TSCO","ROST","TJX","ULTA","LULU",
-    "NEE","DUK","SO","D","AEP","EXC","PCG",
-    "AMT","PLD","EQIX","SPG","O","PSA","WELL",
-    "LIN","APD","SHW","DD","DOW","PPG",
-    "UPS","FDX","DAL","UAL","AAL","JBLU",
-    # ══ GROWTH & TECH LAINNYA ══
-    "PLTR","SNOW","DDOG","DATADOG","ZM","DOCN","CFLT","MDB","ESTC",
-    "SHOP","MELI","SE","GRAB","BABA","JD","PDD","NIO","LI","XPEV",
-    "RKLB","SPCE","LUNR","ACHR","JOBY",
-    # ══ QUANTUM & AI PLAY ══
-    "IONQ","QUBT","RGTI","QBTS","ARQQ","QTUM",
-    "SMCI","HPE","DELL","NTAP","PSTG",
-    # ══ SEMICONDUCTOR ══
-    "TSM","ASML","SNDK","COHR","GLW","WOLF","CREE","ACLS","ONTO",
-    "ARM","SLAB","SITM","DIOD","AMBA",
-    # ══ ETF BENCHMARK ══
-    "SPY","QQQ","IWM","DIA","XLK","XLF","XLE","XLV","XLI","SOXX",
-    # ══ CRYPTO & FINTECH ══
-    "MARA","CLSK","RIOT","BITF","HUT","CIFR",
-    # ══ HEALTHCARE & BIOTECH ══
-    "MRNA","BNTX","REGN","VRTX","ISRG","DXCM","ALGN","IDXX",
-    # ══ MEDIA & ENTERTAINMENT ══
-    "SNAP","PINS","TWTR","RDDT","APP","TTD","MGNI",
-]
+US_STOCKS=["PLTR","MU","NVDA","AAPL","TSLA","AMD","META","GOOGL","MSFT","AMZN",
+           "INTC","TSM","ASML","BABA","JD","NIO","SMCI","ARM","AVGO","QCOM",
+           "SPY","QQQ","MARA","CLSK","RIOT","MELI","SHOP","SQ","PYPL","SNAP",
+           "UBER","LYFT","ABNB","NET","DDOG","SNOW","ZM","CRWD","PANW","OKTA",
+           "APP","MSTR","COIN","SOFI","HOOD","RKLB","IONQ","QUBT","RGTI","JOBY",
+           "SNDK","COHR","GLW","AMAT","LRCX","KLAC","MRVL","NXPI","ON","TXN"]
 
 # ══ HARI LIBUR BURSA IDX 2026 ══
 from datetime import date as _date
@@ -224,56 +162,6 @@ def get_ticker(code):
 _data_cache = {}
 _cache_ttl = 300  # 5 menit
 
-def _fetch_yahoo_direct(ticker, interval, period):
-    """Fetch langsung dari Yahoo Finance API tanpa yfinance library"""
-    try:
-        import requests, time as _time
-        # Map period ke range
-        range_map = {"1d":"1d","2d":"2d","5d":"5d","7d":"7d","8d":"8d",
-                     "10d":"10d","25d":"1mo","1mo":"1mo","2mo":"2mo",
-                     "3mo":"3mo","6mo":"6mo","1y":"1y","2y":"2y","5y":"5y"}
-        # Map interval ke Yahoo format
-        iv_map = {"1d":"1d","1wk":"1wk","1mo":"1mo",
-                  "60m":"60m","30m":"30m","15m":"15m","5m":"5m"}
-        yrange = range_map.get(period, "1y")
-        yiv    = iv_map.get(interval, "1d")
-        url = (f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-               f"?range={yrange}&interval={yiv}&events=history")
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json",
-        }
-        r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code != 200:
-            # Fallback ke query2
-            url2 = url.replace("query1", "query2")
-            r = requests.get(url2, headers=headers, timeout=15)
-        if r.status_code != 200:
-            log.error(f"Yahoo API {r.status_code} [{ticker}]")
-            return pd.DataFrame()
-        data = r.json()
-        result = data.get("chart", {}).get("result", [])
-        if not result:
-            log.warning(f"Yahoo API empty result [{ticker}]")
-            return pd.DataFrame()
-        res    = result[0]
-        ts_raw = res["timestamp"]
-        ohlcv  = res["indicators"]["quote"][0]
-        adjclose = res["indicators"].get("adjclose", [{}])[0].get("adjclose", ohlcv["close"])
-        df = pd.DataFrame({
-            "Open":   ohlcv["open"],
-            "High":   ohlcv["high"],
-            "Low":    ohlcv["low"],
-            "Close":  adjclose,
-            "Volume": ohlcv["volume"],
-        }, index=pd.to_datetime(ts_raw, unit="s", utc=True).tz_convert("Asia/Jakarta" if ticker.endswith(".JK") else "America/New_York"))
-        df.index.name = "Date"
-        df = df.dropna(subset=["Close"])
-        return df
-    except Exception as e:
-        log.error(f"Yahoo direct fetch error [{ticker}]: {e}")
-        return pd.DataFrame()
-
 def get_cached_data(ticker, interval, period):
     """Return cached yfinance data kalau masih fresh"""
     key = f"{ticker}_{interval}_{period}"
@@ -282,23 +170,14 @@ def get_cached_data(ticker, interval, period):
         ts, df = _data_cache[key]
         if now - ts < _cache_ttl:
             return df
-    # Coba yf.download dulu
-    df = pd.DataFrame()
     try:
         df = yf.download(ticker, period=period, interval=interval,
-                        progress=False, auto_adjust=True)
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(-1)
-        df.columns = [c.title() for c in df.columns]
-    except Exception as e:
-        log.warning(f"yf.download gagal [{ticker}]: {e}")
-    # Kalau kosong, fallback ke direct HTTP
-    if df is None or df.empty:
-        log.info(f"Fallback direct fetch [{ticker} {interval} {period}]")
-        df = _fetch_yahoo_direct(ticker, interval, period)
-    if df is not None and not df.empty:
-        _data_cache[key] = (now, df)
-    return df if df is not None else pd.DataFrame()
+                        progress=False, auto_adjust=True, timeout=15)
+        if df is not None and not df.empty:
+            _data_cache[key] = (now, df)
+        return df if df is not None else pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
 def get_signal(code,tf="D"):
     iv,per=TF_MAP.get(tf.upper(),("1d","1y"))
@@ -309,11 +188,7 @@ def get_signal(code,tf="D"):
         if (df.empty or len(df)<26) and ticker.endswith(".JK"):
             ticker=code.upper()
             df = get_cached_data(ticker, iv, per)
-        if df.empty or len(df)<5: return{"error":"Data kurang"}
-        # Extra guard: fix MultiIndex kalau lolos dari cache
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(-1)
-        df.columns = [col.title() for col in df.columns]
+        if df.empty or len(df)<26: return{"error":"Data kurang"}
         c=df["Close"].squeeze(); h=df["High"].squeeze()
         l=df["Low"].squeeze(); v=df["Volume"].squeeze()
         e9=ema(c,9); e20=ema(c,20); e50=ema(c,50)
@@ -323,18 +198,6 @@ def get_signal(code,tf="D"):
         lr=float(r.iloc[-1]); lm=float(ml.iloc[-1]); ls=float(sg.iloc[-1])
         lh=float(hs.iloc[-1]); ph=float(hs.iloc[-2]); lsk=float(sk.iloc[-1])
         lv=float(v.iloc[-1]); av=float(v.tail(20).mean()); vr=lv/av if av>0 else 1
-        # NaN guard: RSI/Stoch butuh 14+ candle valid — fallback ke nilai netral
-        import math
-        if math.isnan(lc) or lc <= 0: return {"error": "Price NaN"}
-        if math.isnan(lr):  lr  = 50.0   # RSI netral
-        if math.isnan(lsk): lsk = 50.0   # Stoch netral
-        if math.isnan(lm):  lm  = 0.0
-        if math.isnan(ls):  ls  = 0.0
-        if math.isnan(lh):  lh  = 0.0
-        if math.isnan(ph):  ph  = 0.0
-        if math.isnan(le9):  le9  = lc
-        if math.isnan(le20): le20 = lc
-        if math.isnan(le50): le50 = lc
         chg=(lc-pc)/pc*100; sigs=[]; sc=0
         if lc>le9>le20>le50: sigs.append("🦅 HAWK1 - EMA Stack Bullish"); sc+=3
         elif lc>le20>le50: sigs.append("🟢 GREEN BULL - Di atas MA20&50"); sc+=2
@@ -358,9 +221,7 @@ def get_signal(code,tf="D"):
                "liquid":liquid,"liquidity_tag":liquidity_tag,
                "df":df,"ema9":e9,"ema20":e20,"ema50":e50,"rsi_s":r,
                "macd_l":ml,"macd_sg":sg,"macd_h":hs,"stoch_k":sk,"stoch_d":sd}
-    except Exception as e:
-        log.error(f"get_signal ERROR [{code} {tf}]: {e}")
-        return{"error":str(e)}
+    except Exception as e: return{"error":str(e)}
 
 # ══ VOLUME SPIKE DETECTION ══
 def detect_volume_spike(code, tf="5M", threshold=2.0):
@@ -1587,9 +1448,9 @@ def calculate_tp_sl(r):
     sl2 = min(sl2, sl1  * 0.97)
     sl3 = min(sl3, sl2  * 0.97)
 
-    # ── Risk/Reward Ratio: pakai TP3 vs SL1 ──
+    # ── Risk/Reward Ratio (vs SL1) ──
     risk   = price - sl1
-    reward = tp3   - price
+    reward = tp1   - price
     rr     = round(reward / risk, 2) if risk > 0 else 0
 
     def fmt_p(v):
@@ -1643,6 +1504,9 @@ async def start(u,c):
         "`/screener_ideal us` — 🏆 US Ideal picks\n"
         "`/doji` — Doji scan IDX (manual: 1H+4H+D) / auto: TF 4H\n"
         "`/doji us` — Doji scan US stocks\n\n"
+        "🌊 *Volume Momentum (BARU):*\n"
+        "`/volmom` — IDX: volume naik terus 5M→15M→30M→1H\n"
+        "`/volmom us` — US stocks volume momentum\n\n"
         "🟢 *First Green Screener (BARU):*\n"
         "`/firstgreen` — IDX: candle hijau pertama setelah ≥2 merah (30M/1H/4H/D)\n"
         "`/firstgreen us` — US stocks first green\n\n"
@@ -1685,25 +1549,27 @@ async def help_cmd(u,c):
         "`/doji us` — Scan doji US\n"
         "`/doji_auto on|off` — Toggle auto doji\n\n"
         "*🌊 Volume Momentum:*\n"
+        "`/volmom` — IDX volume naik 5M→1H\n"
+        "`/volmom us` — US volume momentum\n"
+        "`/volmom_auto on|off` — Toggle auto volmom\n\n"
         "*🟢 First Green (BARU):*\n"
         "`/firstgreen` — IDX first green 30M/1H/4H/D\n"
-        "`/firstgreen us` — US first green\n\n"
-        "*💧 MDP — Market Depth Pressure (BARU):*\n"
-        "`/mdp` — Scan IDX buy/sell pressure + score\n"
-        "`/mdp us` — Scan US stocks MDP\n"
-        "`/mdp detail KODE` — Detail 1 saham (auto 3x/hari)"
+        "`/firstgreen us` — US first green"
     )
     msg2 = (
         "*🤖 Auto Scan:*\n"
         "`/auto on` — Aktifkan auto scan\n"
         "`/auto off` — Matikan auto scan\n\n"
         "*📋 Summary & Market:*\n"
+        "`/summary` — Summary IDX manual\n"
+        "`/summary us` — Summary US manual\n"
         "`/volume` — Top volume IDX\n"
         "`/trend` — Trend market + IHSG\n\n"
         "*🔔 Flip Alert:*\n"
         "`/flipstatus` — Status flip pixel\n"
         "Auto alert flip tiap 30 menit\n\n"
         "*⚡ Auto aktif saat /auto on:*\n"
+        "• Volmom tiap 30 menit\n"
         "• Ideal Screener: open/close + tiap 1j + 4j\n"
         "• Evening summary 16:05 WIB\n"
         "• Flip scan tiap 30 menit\n\n"
@@ -1782,11 +1648,8 @@ async def chart_cmd(u,c):
     if not args: await u.message.reply_text("Format: `/chart BBCA` atau `/chart PLTR D`",parse_mode="Markdown"); return
     code=args[0].upper().replace(".JK",""); tf=args[1].upper() if len(args)>1 else "D"
     m=await u.message.reply_text(f"Membuat chart *{code}* TF:{tf}...",parse_mode="Markdown")
-    try:
-        buf,err=generate_chart(code,tf)
-    except Exception as ex:
-        await m.edit_text(f"Exception: {ex}"); return
-    if err: await m.edit_text(f"Error: {err} | code={code} tf={tf}"); return
+    buf,err=generate_chart(code,tf)
+    if err: await m.edit_text(f"Error: {err}"); return
     await m.delete()
     r=get_signal(code,tf)
     sig_txt=r['sigs'][0].split('-')[0].strip() if r.get('sigs') else 'No Signal'
@@ -1997,6 +1860,173 @@ def detect_volume_momentum(code):
         "strong_tfs": strong_tfs,
     }
 
+def volmom_screener(stock_list, max_workers=10):
+    """Scan volume momentum seluruh daftar saham secara paralel"""
+    results = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(detect_volume_momentum, code): code for code in stock_list}
+        for future in as_completed(futures):
+            try:
+                res = future.result(timeout=20)
+                if res: results.append(res)
+            except Exception as e:
+                log.warning(f"VolMom scan error: {e}")
+    results.sort(key=lambda x: x["mom_score"], reverse=True)
+    return results
+
+def fmt_volmom_msg(results, market_name="IDX"):
+    """Format pesan Telegram untuk volume momentum scan"""
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    lines = [
+        f"🌊 *VOLUME MOMENTUM SCAN — {market_name}*",
+        f"🕐 {now_str}",
+        f"📌 Volume naik konsisten: 5M → 15M → 30M → 1H",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+    if not results:
+        lines.append("— Tidak ada saham dengan volume momentum kuat —")
+    else:
+        for r in results[:10]:
+            em     = "🟢" if r["chg"] >= 0 else "🔴"
+            liq    = "" if r["liquid"] else " ⚠️ILL"
+            is_idr = r["ticker"].endswith(".JK")
+            px     = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+            # Bar visual untuk setiap TF
+            def bar(v):
+                if v >= 3.0: return "🔴🔴🔴"
+                if v >= 2.0: return "🟠🟠"
+                if v >= 1.5: return "🟡"
+                return "⬜"
+            lines.append(
+                f"{em} *{r['code']}* `{px}` {r['chg']:+.2f}%{liq}\n"
+                f"  5M:{bar(r['vr_5m'])}`{r['vr_5m']:.1f}x` "
+                f"15M:{bar(r['vr_15m'])}`{r['vr_15m']:.1f}x` "
+                f"30M:{bar(r['vr_30m'])}`{r['vr_30m']:.1f}x` "
+                f"1H:{bar(r['vr_1h'])}`{r['vr_1h']:.1f}x` "
+                f"| Score:`{r['mom_score']}`"
+            )
+    lines += [
+        "━━━━━━━━━━━━━━━━━━━━",
+        "💡 VR=Volume ratio vs rata² 5 candle sebelumnya",
+        "🟡≥1.5x 🟠≥2x 🔴≥3x — makin merah makin kuat",
+        f"⏱ {now_str}"
+    ]
+    return "\n".join(lines)
+
+async def volmom_cmd(u, c):
+    """Command /volmom [idx/us] — Volume Momentum Screener multi-TF"""
+    args = c.args
+    market = "us" if args and args[0].lower() in ("us","usa") else "idx"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+    flag   = "🇺🇸 US" if market == "us" else "🇮🇩 IDX"
+    m = await u.message.reply_text(
+        f"🌊 Scanning *{flag}* volume momentum di 4 TF...\n"
+        f"_(5M, 15M, 30M, 1H — harap tunggu ~30 detik)_",
+        parse_mode="Markdown")
+    results = await asyncio.get_event_loop().run_in_executor(
+        None, volmom_screener, stocks)
+    msg = fmt_volmom_msg(results, flag)
+    await m.edit_text(msg, parse_mode="Markdown")
+    # Kirim chart saham teratas kalau ada
+    if results:
+        best = results[0]
+        buf, _ = generate_chart(best["code"], "5M")
+        if buf:
+            is_idr = best["ticker"].endswith(".JK")
+            px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+            await u.message.reply_photo(photo=buf,
+                caption=(f"🌊 TOP VOLMOM: *{best['code']}* | `{px}` {best['chg']:+.2f}%\n"
+                         f"5M:`{best['vr_5m']:.1f}x` 15M:`{best['vr_15m']:.1f}x` "
+                         f"30M:`{best['vr_30m']:.1f}x` 1H:`{best['vr_1h']:.1f}x`\n"
+                         f"MomScore:`{best['mom_score']}` | {fmt_now()}"),
+                parse_mode="Markdown")
+
+async def volmom_auto_scan(context):
+    """Auto scan volume momentum IDX — hanya 4H (hemat resource)"""
+    if not is_idx_trading_day(): return
+    if not auto_users: return
+    if not volmom_auto_enabled: return  # bisa dimatikan via /volmom_auto off
+    if not is_idx_market_open(): return
+    bot = context.bot
+    # Hanya scan dengan TF referensi 4H
+    results = await asyncio.get_event_loop().run_in_executor(
+        None, volmom_screener, IDX_STOCKS)
+    hot = [r for r in results if r["mom_score"] >= 6]
+    if not hot: return
+    msg = fmt_volmom_msg(hot, "🇮🇩 IDX AUTO")
+    for uid in auto_users:
+        try:
+            await bot.send_message(int(uid), msg, parse_mode="Markdown")
+            buf, _ = generate_chart(hot[0]["code"], "5M")
+            if buf:
+                is_idr = hot[0]["ticker"].endswith(".JK")
+                px = f"Rp {hot[0]['price']:,.0f}" if is_idr else f"${hot[0]['price']:,.2f}"
+                await bot.send_photo(int(uid), photo=buf,
+                    caption=(f"🌊 VOLMOM AUTO: *{hot[0]['code']}* | `{px}`\n"
+                             f"5M:`{hot[0]['vr_5m']:.1f}x` 15M:`{hot[0]['vr_15m']:.1f}x` "
+                             f"30M:`{hot[0]['vr_30m']:.1f}x` 1H:`{hot[0]['vr_1h']:.1f}x`\n"
+                             f"MomScore:`{hot[0]['mom_score']}` | {fmt_now()}"),
+                    parse_mode="Markdown")
+        except Exception as e:
+            log.error(f"volmom auto uid {uid}: {e}")
+
+# ══ AUTO SCAN ══
+async def auto_cmd(u,c):
+    uid=str(u.effective_user.id); args=c.args
+    if not args: await u.message.reply_text("⚠️ Format: `/auto on` atau `/auto off`",parse_mode="Markdown"); return
+    if args[0].lower()=="on":
+        auto_users[uid]=True; save_json(AUTO_FILE,auto_users)
+        await u.message.reply_text(
+            "🤖 *Auto Scan AKTIF v5.1!*\n\n"
+            "🇮🇩 *IDX Scanner:* aktif *09:00-15:15 WIB* (weekday)\n"
+            "🇺🇸 *US Scanner:* aktif *20:30-03:00 WIB* (weekday)\n"
+            "⏰ Volume spike alert setiap *15 menit*\n"
+            "🌊 Volume Momentum scan setiap *30 menit* (TF 4H)\n"
+            "🌅 Morning scan IDX setiap jam *09:00 WIB*\n"
+            "🌆 *Evening summary* recap harian jam *16:05 WIB*\n"
+            "🕯 *Doji scan* tiap 1 jam — TF 4H (hemat resource)\n"
+            "🏆 *Ideal Screener:* open/close IDX&US + tiap 1jam + tiap 4jam\n"
+            "⚡ *Parallel scan 10 thread — lebih cepat & akurat!*\n\n"
+            "🏖 *Auto skip libur nasional IDX* (tidak spam)\n"
+            "📊 *Score rendah = notif ringkas* (tidak kirim chart)\n"
+            "🔄 On/off doji: `/doji_auto on|off`\n"
+            "🔄 On/off volmom: `/volmom_auto on|off`\n"
+            "⚠️ LOW LIQUIDITY = saham illiquid otomatis diberi tanda",
+            parse_mode="Markdown")
+    else:
+        auto_users.pop(uid,None); save_json(AUTO_FILE,auto_users)
+        await u.message.reply_text("⏹ Auto scan dimatikan.",parse_mode="Markdown")
+
+async def doji_auto_cmd(u, c):
+    """Command /doji_auto on|off — toggle doji auto scan"""
+    global doji_auto_enabled
+    args = c.args
+    if not args:
+        status = "✅ ON" if doji_auto_enabled else "❌ OFF"
+        await u.message.reply_text(f"🕯 Doji Auto Scan: *{status}*\nGunakan `/doji_auto on` atau `/doji_auto off`", parse_mode="Markdown")
+        return
+    if args[0].lower() == "on":
+        doji_auto_enabled = True
+        await u.message.reply_text("🕯 *Doji Auto Scan: ✅ AKTIF*\nBot akan kirim alert doji TF 4H tiap 1 jam saat IDX buka.", parse_mode="Markdown")
+    elif args[0].lower() == "off":
+        doji_auto_enabled = False
+        await u.message.reply_text("🕯 *Doji Auto Scan: ❌ MATI*\nBot tidak akan kirim alert doji otomatis. Scan manual tetap bisa via `/doji`.", parse_mode="Markdown")
+
+async def volmom_auto_cmd(u, c):
+    """Command /volmom_auto on|off — toggle volmom auto scan"""
+    global volmom_auto_enabled
+    args = c.args
+    if not args:
+        status = "✅ ON" if volmom_auto_enabled else "❌ OFF"
+        await u.message.reply_text(f"🌊 Volmom Auto Scan: *{status}*\nGunakan `/volmom_auto on` atau `/volmom_auto off`", parse_mode="Markdown")
+        return
+    if args[0].lower() == "on":
+        volmom_auto_enabled = True
+        await u.message.reply_text("🌊 *Volmom Auto Scan: ✅ AKTIF*\nBot akan kirim alert volume momentum tiap 30 menit saat IDX buka.", parse_mode="Markdown")
+    elif args[0].lower() == "off":
+        volmom_auto_enabled = False
+        await u.message.reply_text("🌊 *Volmom Auto Scan: ❌ MATI*\nBot tidak akan kirim alert volmom otomatis. Scan manual tetap bisa via `/volmom`.", parse_mode="Markdown")
+
 async def volume_cmd(u,c):
     m=await u.message.reply_text("💧 Mengambil data volume... (parallel ⚡)")
     def fetch_vol(code):
@@ -2050,38 +2080,30 @@ async def flip_pixel_scan(context):
     if not auto_users: return
     if not (is_idx_market_open() or is_us_market_open()): return
     bot=context.bot
-
-    # ✅ FIX: Scan multi-TF — 30M, 1H, 4H, D untuk IDX; D+4H untuk US
-    idx_tfs  = ["30M", "1H", "4H", "D"]
-    us_tfs   = ["4H", "D"]
-    all_stocks = ([(c, tf) for c in IDX_STOCKS for tf in idx_tfs] +
-                  [(c, tf) for c in US_STOCKS[:30] for tf in us_tfs])
-
+    all_stocks=[(c,"D") for c in IDX_STOCKS]+[(c,"D") for c in US_STOCKS[:20]]
     flips_bull=[]; flips_bear=[]
 
     def check_flip(code_tf):
-        code, tf = code_tf
-        new_state = get_trend_state(code, tf)
+        code,tf=code_tf
+        new_state=get_trend_state(code,tf)
         if new_state is None: return None
-        # ✅ FIX: key include TF supaya tidak overwrite satu sama lain
-        state_key = f"{code}_{tf}"
-        old_state = flip_state_db.get(state_key, "neutral")
-        flip_state_db[state_key] = new_state
-        if old_state in ("bear", "neutral") and new_state == "bull":
-            r = get_signal(code, tf)
-            if "error" not in r and r.get("liquid", True): return ("bull", code, tf, r)
-        elif old_state in ("bull", "neutral") and new_state == "bear":
-            r = get_signal(code, tf)
-            if "error" not in r: return ("bear", code, tf, r)
+        old_state=flip_state_db.get(code,"neutral")
+        flip_state_db[code]=new_state
+        if old_state in ("bear","neutral") and new_state=="bull":
+            r=get_signal(code,tf)
+            if "error" not in r and r.get("liquid",True): return ("bull",code,r)
+        elif old_state in ("bull","neutral") and new_state=="bear":
+            r=get_signal(code,tf)
+            if "error" not in r: return ("bear",code,r)
         return None
 
     loop=asyncio.get_event_loop()
     results=await loop.run_in_executor(None,lambda:[check_flip(ct) for ct in all_stocks])
     for res in results:
         if res is None: continue
-        direction,code,tf,r=res
-        if direction=="bull": flips_bull.append((code,tf,r))
-        else: flips_bear.append((code,tf,r))
+        direction,code,r=res
+        if direction=="bull": flips_bull.append((code,r))
+        else: flips_bear.append((code,r))
     save_json(FLIP_FILE,flip_state_db)
     if not flips_bull and not flips_bear: return
     now_str=datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
@@ -2089,67 +2111,27 @@ async def flip_pixel_scan(context):
         try:
             if flips_bull:
                 lines=["🚀 *PIXEL FLIP — BEARISH ➜ BULLISH*",f"🕐 {now_str}","━━━━━━━━━━━━━━━━━━━━"]
-                for code,tf,r in flips_bull[:8]:
-                    is_idr=r["ticker"].endswith(".JK")
+                for code,r in flips_bull[:6]:
+                    is_idr=code.endswith(".JK")
                     px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
                     chg=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
                     sig=r['sigs'][0].split('-')[0].strip() if r['sigs'] else 'No Signal'
-                    lines.append(f"✅ *{code}* TF:`{tf}` `{px}` {chg} | Score:`{r['score']}/8` | {sig}")
+                    lines.append(f"✅ *{code}* `{px}` {chg} | Score:`{r['score']}/8` | {sig}")
                 lines+=["━━━━━━━━━━━━━━━━━━━━","📊 EMA: Price > EMA9 > MA20 > MA50","💡 Konfirmasi entry!"]
                 await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
-                best_code,best_tf,best_r=flips_bull[0]
-                buf,_=generate_chart(best_code,best_tf)
+                buf,_=generate_chart(flips_bull[0][0],"D")
                 if buf: await bot.send_photo(int(uid),photo=buf,
-                    caption=f"🚀 FLIP BULLISH: {best_code} TF:{best_tf} | Score:{best_r['score']}/8 | {now_str}")
+                    caption=f"🚀 FLIP BULLISH: {flips_bull[0][0]} | Score:{flips_bull[0][1]['score']}/8 | {now_str}")
             if flips_bear:
                 lines=["⚠️ *PIXEL FLIP — BULLISH ➜ BEARISH*",f"🕐 {now_str}","━━━━━━━━━━━━━━━━━━━━"]
-                for code,tf,r in flips_bear[:8]:
-                    is_idr=r["ticker"].endswith(".JK")
+                for code,r in flips_bear[:6]:
+                    is_idr=code.endswith(".JK")
                     px=f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
                     chg=f"+{r['chg']:.2f}%" if r['chg']>=0 else f"{r['chg']:.2f}%"
-                    lines.append(f"🔴 *{code}* TF:`{tf}` `{px}` {chg} | Score:`{r['score']}/8` | CUT/AVOID")
+                    lines.append(f"🔴 *{code}* `{px}` {chg} | Score:`{r['score']}/8` | CUT/AVOID")
                 lines+=["━━━━━━━━━━━━━━━━━━━━","📊 EMA: Price < EMA9 < MA20 < MA50","⚡ Waspada distribusi!"]
                 await bot.send_message(int(uid),"\n".join(lines),parse_mode="Markdown")
         except Exception as e: log.error(f"flip alert uid {uid}: {e}")
-
-
-async def auto_cmd(u,c):
-    uid=str(u.effective_user.id); args=c.args
-    if not args: await u.message.reply_text("⚠️ Format: `/auto on` atau `/auto off`",parse_mode="Markdown"); return
-    if args[0].lower()=="on":
-        auto_users[uid]=True; save_json(AUTO_FILE,auto_users)
-        await u.message.reply_text(
-            "🤖 *Auto Scan AKTIF!*\n\n"
-            "🇮🇩 *IDX Scanner:* aktif *09:00-15:15 WIB* (weekday)\n"
-            "🇺🇸 *US Scanner:* aktif *20:30-03:00 WIB* (weekday)\n"
-            "⏰ Volume spike alert setiap *15 menit*\n"
-            "🌅 Morning scan IDX setiap jam *09:00 WIB*\n"
-            "🕯 *Doji scan* tiap 1 jam — TF 4H\n"
-            "🏆 *Ideal Screener:* open/close IDX&US + tiap 1jam + tiap 4jam\n"
-            "⚡ *Parallel scan 10 thread*\n\n"
-            "🏖 *Auto skip libur nasional IDX*\n"
-            "📊 *Score rendah = notif ringkas*\n"
-            "🔄 On/off doji: `/doji_auto on|off`\n"
-            "⚠️ LOW LIQUIDITY = saham illiquid otomatis diberi tanda",
-            parse_mode="Markdown")
-    else:
-        auto_users.pop(uid,None); save_json(AUTO_FILE,auto_users)
-        await u.message.reply_text("⏹ Auto scan dimatikan.",parse_mode="Markdown")
-
-async def doji_auto_cmd(u, c):
-    """Command /doji_auto on|off"""
-    global doji_auto_enabled
-    args = c.args
-    if not args:
-        status = "✅ ON" if doji_auto_enabled else "❌ OFF"
-        await u.message.reply_text(f"🕯 Doji Auto Scan: *{status}*\nGunakan `/doji_auto on` atau `/doji_auto off`", parse_mode="Markdown")
-        return
-    if args[0].lower() == "on":
-        doji_auto_enabled = True
-        await u.message.reply_text("🕯 *Doji Auto Scan: ✅ AKTIF*", parse_mode="Markdown")
-    else:
-        doji_auto_enabled = False
-        await u.message.reply_text("🕯 *Doji Auto Scan: ❌ MATI*", parse_mode="Markdown")
 
 async def doji_auto_scan(context):
     """Auto scan doji bullish reversal IDX — hanya TF 4H (hemat resource)"""
@@ -2321,6 +2303,101 @@ def api_sig(code):
     return jsonify({k:v for k,v in r.items() if k not in ["df","ema9","ema20","ema50","rsi_s","macd_l","macd_sg","macd_h","stoch_k","stoch_d"]})
 
 def run_flask(): app.run(host="0.0.0.0",port=PORT,debug=False,use_reloader=False)
+
+async def summary_cmd(u,c):
+    """Command /summary [us] — trigger summary manual IDX atau US"""
+    args   = c.args
+    market = "us" if args and args[0].lower() == "us" else "idx"
+    flag   = "🇺🇸" if market == "us" else "🇮🇩"
+    label  = "US STOCKS" if market == "us" else "IDX"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+
+    m = await u.message.reply_text(
+        f"📊 Menyiapkan {flag} *{label} Summary*, tunggu ~30 detik...",
+        parse_mode="Markdown")
+    now          = datetime.now(WIB)
+    date_str     = now.strftime("%d %b %Y")
+    weekend_note = " *(Data penutupan Jumat)*" if not is_weekday() else ""
+
+    try:
+        res = await asyncio.get_event_loop().run_in_executor(
+            None, parallel_signal_scan, stocks, "D", 3)
+        res_liq   = [r for r in res if r.get("liquid", True)]
+        fire      = [r for r in res_liq if r["score"] >= 6][:5]
+        vol_spike = [r for r in res if r.get("vr",0) >= 2][:5]
+        top_bull  = sorted([r for r in res_liq if r["chg"] > 0], key=lambda x: -x["chg"])[:3]
+        top_bear  = sorted([r for r in res_liq if r["chg"] < 0], key=lambda x: x["chg"])[:3]
+        up_ct = sum(1 for r in res if r["chg"] >= 0)
+        dn_ct = sum(1 for r in res if r["chg"] < 0)
+        mood  = "BULLISH 🟢" if up_ct > dn_ct else "BEARISH 🔴" if dn_ct > up_ct else "MIXED ↔"
+
+        lines = [
+            f"{flag} *{label} SUMMARY — {date_str}*{weekend_note}",
+            f"🕐 Recap {len(res)} saham",
+            "━━━━━━━━━━━━━━━━━━━━",
+            f"📊 Mood Pasar: *{mood}*",
+            f"🟢 Naik: `{up_ct}` | 🔴 Turun: `{dn_ct}`", ""
+        ]
+        if fire:
+            lines.append("🔥 *TOP SIGNAL (Score 6+):*")
+            for r in fire:
+                top = r["sigs"][0].split("-")[0].strip() if r["sigs"] else "—"
+                ts  = calculate_tp_sl(r)
+                is_idr = r["ticker"].endswith(".JK")
+                px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                lines.append(
+                    f"  🔥 *{r['code']}* `{px}` {r['chg']:+.2f}% Score:`{r['score']}/8`\n"
+                    f"     {top} | TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) SL1:`{ts['sl1_str']}`"
+                )
+            lines.append("")
+        if vol_spike:
+            lines.append("🌊 *VOLUME SPIKE:*")
+            for r in vol_spike[:4]:
+                em = "▲" if r["chg"] >= 0 else "▼"
+                is_idr = r["ticker"].endswith(".JK")
+                px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                lines.append(f"  {em} *{r['code']}* `{px}` {r['chg']:+.2f}% Vol:`{r['vr']:.1f}x`")
+            lines.append("")
+        if market == "us" and top_bull:
+            lines.append("🚀 *TOP GAINERS:*")
+            for r in top_bull:
+                ts = calculate_tp_sl(r)
+                px = f"${r['price']:,.2f}"
+                lines.append(f"  🟢 *{r['code']}* `{px}` {r['chg']:+.2f}% TP1:`{ts['tp1_str']}`")
+            lines.append("")
+        if top_bear:
+            lines.append("📉 *TOP LOSERS:*")
+            for r in top_bear:
+                is_idr = r["ticker"].endswith(".JK")
+                px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                lines.append(f"  🔴 *{r['code']}* `{px}` {r['chg']:+.2f}%")
+            lines.append("")
+        lines += ["━━━━━━━━━━━━━━━━━━━━",
+                  f"💡 Gunakan `/screener{'_us' if market=='us' else ''}` untuk full scan",
+                  f"📌 `/summary` = IDX | `/summary us` = 🇺🇸 US",
+                  f"⏱ {fmt_now()}"]
+
+        await m.delete()
+        await u.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+        # Kirim chart top pick
+        if fire:
+            best = fire[0]; buf, _ = generate_chart(best["code"], "D")
+            if buf:
+                ts = calculate_tp_sl(best)
+                is_idr = best["ticker"].endswith(".JK")
+                px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+                await u.message.reply_photo(photo=buf,
+                    caption=(f"🏆 *TOP PICK {flag}: {best['code']}* | `{px}` {best['chg']:+.2f}%\n"
+                             f"Score:`{best['score']}/8` | {best['trend']}\n"
+                             f"━━━━━━━━━━━━━━━\n"
+                             f"🎯 TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+                             f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%)\n"
+                             f"🛡 SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
+                             f"R/R:`{ts['rr']}x`\n⏱ {fmt_now()}"),
+                    parse_mode="Markdown")
+    except Exception as e:
+        await m.edit_text(f"❌ Error summary: {e}")
 
 async def pattern_cmd(u, c):
     """Command /pattern [idx/us] — scan semua saham untuk pattern"""
@@ -2927,380 +3004,28 @@ async def firstgreen_cmd(u, c):
         await m.edit_text(f"❌ Error first green scan: {e}")
 
 
-def calc_mdp_score(code):
-    """
-    Hitung MDP (Market Depth Pressure) untuk satu saham.
-    Pakai data intraday 1H + Daily untuk cross-validate.
-
-    Returns dict:
-        mdp_pct   : net buy pressure % (-100 to +100)
-        cp        : candle pressure score (-100 to +100)
-        two       : two-way flow score (0-100, makin tinggi makin dua arah)
-        weight    : relative weight vs universe
-        score_mdp : integer 0-10 (probability naik)
-        price, chg, vol_ratio, rsi, trend
-    """
-    import math
-    try:
-        ticker = get_ticker(code)
-        # Ambil data 1H 30 hari + Daily 1 tahun
-        df_h  = get_cached_data(ticker, "60m", "30d")
-        df_d  = get_cached_data(ticker, "1d",  "1y")
-        if df_h.empty or len(df_h) < 10: return None
-        if df_d.empty or len(df_d) < 20: return None
-
-        c_h = df_h["Close"].squeeze()
-        h_h = df_h["High"].squeeze()
-        l_h = df_h["Low"].squeeze()
-        v_h = df_h["Volume"].squeeze()
-        c_d = df_d["Close"].squeeze()
-        v_d = df_d["Volume"].squeeze()
-
-        price  = float(c_h.iloc[-1])
-        pc     = float(c_h.iloc[-2]) if len(c_h) >= 2 else price
-        if math.isnan(price) or price <= 0: return None
-
-        chg    = (price - pc) / pc * 100 if pc > 0 else 0.0
-
-        # ── 1. Candle Pressure (CP) ──
-        # Ratio candle bullish vs bearish di 20 candle terakhir (1H)
-        tail20 = df_h.tail(20)
-        bull_c = (tail20["Close"] > tail20["Open"]).sum()
-        bear_c = (tail20["Close"] < tail20["Open"]).sum()
-        total_c = bull_c + bear_c
-        cp = round((bull_c - bear_c) / total_c * 100, 1) if total_c > 0 else 0.0
-
-        # ── 2. MDP% — Net Buy Pressure ──
-        # Proxy: upper shadow kecil + close dekat high = buy pressure
-        # Formula: (Close - Low) / (High - Low) → "buying tail ratio"
-        ranges = (h_h - l_h).tail(20)
-        closes = c_h.tail(20)
-        lows   = l_h.tail(20)
-        buy_tail = (closes - lows) / ranges.replace(0, np.nan)
-        buy_tail = buy_tail.fillna(0.5)
-        # Scale ke -100..+100: 0.5 = netral
-        mdp_pct = round((buy_tail.mean() - 0.5) * 200, 1)
-
-        # ── 3. Volume pressure — weight terhadap avg ──
-        avg_vol_d = float(v_d.tail(20).mean())
-        last_vol  = float(v_d.iloc[-1]) if not v_d.empty else 0
-        vol_ratio = last_vol / avg_vol_d if avg_vol_d > 0 else 1.0
-        weight    = round(min(vol_ratio * 10, 100), 1)  # cap 100
-
-        # ── 4. Two-way flow (TWO) ──
-        # Makin tinggi = dua arah (volatile), makin rendah = one-sided
-        # Pakai std candle body / avg price sebagai proxy
-        bodies = abs(df_h["Close"] - df_h["Open"]).tail(20)
-        avg_body = bodies.mean()
-        two = round(min(avg_body / price * 1000, 100), 1) if price > 0 else 0.0
-
-        # ── 5. Trend dari Daily ──
-        e9_d  = ema(c_d, 9)
-        e20_d = ema(c_d, 20)
-        e50_d = ema(c_d, 50)
-        le9   = float(e9_d.iloc[-1])
-        le20  = float(e20_d.iloc[-1])
-        le50  = float(e50_d.iloc[-1])
-        if math.isnan(le9):  le9  = price
-        if math.isnan(le20): le20 = price
-        if math.isnan(le50): le50 = price
-        trend = "UP" if price > le20 > le50 else "DN" if price < le20 < le50 else "SW"
-
-        # ── 6. RSI dari Daily ──
-        r_d  = rsi(c_d)
-        lr_d = float(r_d.iloc[-1]) if not r_d.empty else 50.0
-        if math.isnan(lr_d): lr_d = 50.0
-
-        # ── 7. Score MDP (0-10) — probability naik ──
-        # Komponen:
-        sc = 0
-        if mdp_pct > 20:  sc += 2   # strong buy pressure
-        elif mdp_pct > 5: sc += 1   # mild buy pressure
-        if cp > 30:  sc += 2         # candle dominan bullish
-        elif cp > 10: sc += 1
-        if trend == "UP": sc += 2    # uptrend daily
-        elif trend == "SW": sc += 1
-        if 40 < lr_d < 70: sc += 1  # RSI zona sehat
-        elif lr_d < 35:    sc += 1  # oversold potential bounce
-        if vol_ratio > 1.5: sc += 1 # volume naik
-        if chg > 0:         sc += 1 # green hari ini
-
-        is_idx = ticker.endswith(".JK")
-        liquid = is_liquid_stock(avg_vol_d, price) if is_idx else True
-
-        return {
-            "code":      code.upper(),
-            "ticker":    ticker,
-            "price":     price,
-            "chg":       chg,
-            "mdp_pct":   mdp_pct,
-            "cp":        cp,
-            "two":       two,
-            "weight":    weight,
-            "score_mdp": sc,
-            "trend":     trend,
-            "rsi":       lr_d,
-            "vol_ratio": vol_ratio,
-            "liquid":    liquid,
-        }
-    except Exception as e:
-        return None
-
-
-def mdp_scan(stock_list, min_score=5, max_workers=12):
-    """Scan MDP untuk semua saham secara paralel."""
-    results = []
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futures = {ex.submit(calc_mdp_score, c): c for c in stock_list}
-        for f in as_completed(futures):
-            try:
-                r = f.result(timeout=20)
-                if r and r["score_mdp"] >= min_score and r.get("liquid", True):
-                    results.append(r)
-            except Exception: pass
-    results.sort(key=lambda x: (x["score_mdp"], x["mdp_pct"]), reverse=True)
-    return results
-
-
-def fmt_mdp_msg(results, market="IDX", session_label=""):
-    """Format pesan MDP untuk Telegram."""
-    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
-    flag = "🇮🇩" if market == "IDX" else "🇺🇸"
-    lines = [
-        f"💧 *MDP SCREENER — {flag} {market}*",
-        f"🕐 {now_str}" + (f" | {session_label}" if session_label else ""),
-        f"📊 Kriteria: Score MDP ≥ 5 | Liquid | Sorted by pressure",
-        "━━━━━━━━━━━━━━━━━━━━",
-        f"{'No':<3} {'Kode':<8} {'Harga':>8} {'Chg':>7} | {'MDP%':>6} {'CP':>6} {'TWO':>5} | Sc",
-        "━━━━━━━━━━━━━━━━━━━━",
-    ]
-    if not results:
-        lines.append("❌ Tidak ada saham memenuhi kriteria MDP saat ini.")
-    else:
-        for i, r in enumerate(results[:25], 1):
-            is_idr = r["ticker"].endswith(".JK")
-            px     = f"{r['price']:,.0f}" if is_idr else f"{r['price']:.2f}"
-            chg_s  = f"{r['chg']:+.1f}%"
-            mdp_s  = f"{r['mdp_pct']:+.1f}"
-            cp_s   = f"{r['cp']:+.1f}"
-            two_s  = f"{r['two']:.1f}"
-            sc_s   = f"{r['score_mdp']}/10"
-            trend_icon = "⬆" if r["trend"]=="UP" else "⬇" if r["trend"]=="DN" else "↔"
-            lines.append(
-                f"{i:<3} *{r['code']:<7}* `{px:>8}` `{chg_s:>7}` | "
-                f"`{mdp_s:>6}` `{cp_s:>6}` `{two_s:>5}` | `{sc_s}` {trend_icon}"
-            )
-    lines += [
-        "━━━━━━━━━━━━━━━━━━━━",
-        "📌 *Keterangan kolom:*",
-        "  MDP% = net buy pressure (-100 s/d +100)",
-        "  CP   = candle pressure (bullish dominan)",
-        "  TWO  = two-way flow (volatilitas)",
-        "  Sc   = score probabilitas naik (0-10)",
-        f"💡 Ketik `/mdp detail KODE` untuk analisis 1 saham",
-    ]
-    return "\n".join(lines)
-
-
-async def mdp_cmd(u, c):
-    """
-    /mdp [us] [min_score]   — MDP screener IDX atau US
-    /mdp detail KODE        — Detail MDP 1 saham
-    """
-    args = c.args or []
-    # Detail mode: /mdp detail KODE
-    if args and args[0].lower() == "detail":
-        code = args[1].upper() if len(args) > 1 else None
-        if not code:
-            await u.message.reply_text("❓ Format: `/mdp detail KODE`\nContoh: `/mdp detail BBCA`",
-                                       parse_mode="Markdown")
-            return
-        m = await u.message.reply_text(f"⏳ Hitung MDP untuk *{code}*...", parse_mode="Markdown")
-        loop = asyncio.get_event_loop()
-        r = await loop.run_in_executor(None, calc_mdp_score, code)
-        if not r:
-            await m.edit_text(f"❌ Gagal ambil data MDP untuk *{code}*", parse_mode="Markdown")
-            return
-        is_idr = r["ticker"].endswith(".JK")
-        px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
-        now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
-        trend_icon = "⬆ UPTREND" if r["trend"]=="UP" else "⬇ DOWNTREND" if r["trend"]=="DN" else "↔ SIDEWAYS"
-        mdp_bar = "█" * max(0, min(10, int((r["mdp_pct"]+100)/20))) + "░" * (10 - max(0, min(10, int((r["mdp_pct"]+100)/20))))
-        msg = (
-            f"💧 *MDP DETAIL — {r['code']}*\n"
-            f"🕐 {now_str}\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💰 Harga: `{px}` {r['chg']:+.2f}%\n"
-            f"📈 Trend: {trend_icon}\n"
-            f"🔵 RSI: `{r['rsi']:.1f}`\n"
-            f"📦 Volume: `{r['vol_ratio']:.1f}x` avg\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"💧 *MDP%*: `{r['mdp_pct']:+.1f}` — Net Buy Pressure\n"
-            f"   [{mdp_bar}]\n"
-            f"🕯 *CP*: `{r['cp']:+.1f}` — Candle Pressure\n"
-            f"🔀 *TWO*: `{r['two']:.1f}` — Two-way Flow\n"
-            f"⚖️ *Weight*: `{r['weight']:.1f}`\n"
-            f"━━━━━━━━━━━━━━━━━━━━\n"
-            f"🎯 *Score MDP*: `{r['score_mdp']}/10`\n"
-        )
-        # Score interpretation
-        if r["score_mdp"] >= 8:
-            msg += "✅ *STRONG BUY PRESSURE* — probabilitas naik tinggi\n"
-        elif r["score_mdp"] >= 6:
-            msg += "🟡 *MODERATE BUY* — perlu konfirmasi volume\n"
-        elif r["score_mdp"] >= 4:
-            msg += "⚪ *NETRAL* — tunggu sinyal lebih jelas\n"
-        else:
-            msg += "🔴 *SELL PRESSURE* — hindari entry\n"
-        await m.edit_text(msg, parse_mode="Markdown")
-        return
-
-    # Screener mode
-    market = "us" if (args and args[0].lower() == "us") else "idx"
-    try:
-        min_sc = int(args[-1]) if args and args[-1].isdigit() else 5
-    except: min_sc = 5
-    flag  = "🇺🇸" if market == "us" else "🇮🇩"
-    label = "US" if market == "us" else "IDX"
-    stocks = US_STOCKS if market == "us" else IDX_STOCKS
-
-    # Session label
-    now_wib = datetime.now(WIB)
-    h = now_wib.hour
-    if h < 10:   sess = "📅 Pra-Buka"
-    elif h < 12: sess = "🌅 Sesi 1"
-    elif h < 14: sess = "🌞 Istirahat"
-    elif h < 16: sess = "🌆 Sesi 2"
-    else:        sess = "🌙 After-Hours"
-
-    m = await u.message.reply_text(
-        f"⏳ Scanning MDP {flag} {label}... (bisa 30-60 detik)",
-        parse_mode="Markdown")
-    try:
-        loop = asyncio.get_event_loop()
-        results = await loop.run_in_executor(
-            None, lambda: mdp_scan(stocks, min_score=min_sc))
-        msg = fmt_mdp_msg(results, label, sess)
-        await m.edit_text(msg, parse_mode="Markdown")
-        # Kirim chart top pick
-        if results:
-            best = results[0]
-            buf, _ = generate_chart(best["code"], "D")
-            if buf:
-                is_idr = best["ticker"].endswith(".JK")
-                px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
-                await u.message.reply_photo(
-                    photo=buf,
-                    caption=(f"💧 MDP TOP PICK: *{best['code']}*\n"
-                             f"`{px}` {best['chg']:+.2f}%\n"
-                             f"MDP:`{best['mdp_pct']:+.1f}` CP:`{best['cp']:+.1f}` "
-                             f"TWO:`{best['two']:.1f}` Score:`{best['score_mdp']}/10`\n"
-                             f"📈 Trend: {best['trend']} | RSI:`{best['rsi']:.1f}` "
-                             f"Vol:`{best['vol_ratio']:.1f}x`"),
-                    parse_mode="Markdown")
-    except Exception as e:
-        await m.edit_text(f"❌ Error MDP scan: {e}")
-
-
-async def mdp_auto_scan(context):
-    """Auto scan MDP 3x sehari: 08:45, 11:00, 15:30 WIB"""
-    if not is_idx_trading_day(): return
-    if not auto_users: return
-    bot = context.bot
-    now_wib = datetime.now(WIB)
-    h, mn = now_wib.hour, now_wib.minute
-    # Tentukan session label
-    if h == 8:   sess = "📅 Pra-Buka (08:45)"
-    elif h == 11: sess = "🌅 Sesi 1 (11:00)"
-    elif h == 15: sess = "🌆 Sesi 2 (15:30)"
-    else: return  # bukan jam auto
-
-    now_str = now_wib.strftime("%d-%b-%Y %H:%M WIB")
-    results = mdp_scan(IDX_STOCKS, min_score=6)
-    if not results: return
-    msg = fmt_mdp_msg(results[:15], "IDX", sess)
-    for uid in auto_users:
-        try:
-            await bot.send_message(int(uid), msg, parse_mode="Markdown")
-            if results:
-                best = results[0]
-                buf, _ = generate_chart(best["code"], "D")
-                if buf:
-                    is_idr = best["ticker"].endswith(".JK")
-                    px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
-                    await bot.send_photo(
-                        int(uid), photo=buf,
-                        caption=(f"💧 MDP TOP: *{best['code']}* {sess}\n"
-                                 f"`{px}` {best['chg']:+.2f}% | "
-                                 f"Score:`{best['score_mdp']}/10` | "
-                                 f"MDP:`{best['mdp_pct']:+.1f}`\n{now_str}"),
-                        parse_mode="Markdown")
-        except Exception as e:
-            log.error(f"MDP auto uid {uid}: {e}")
-
-
-
-
-
-async def debug_cmd(u, c):
-    """Command /debug — test yfinance fetch langsung"""
-    await u.message.reply_text("Testing yfinance...")
-    results = []
-    import time
-    tests = [
-        ("BBRI.JK", "1d", "5d"),
-        ("MU",      "60m", "5d"),
-        ("AAPL",    "1d", "5d"),
-    ]
-    for ticker, interval, period in tests:
-        # Test yf.download
-        try:
-            t0 = time.time()
-            df = yf.download(ticker, period=period, interval=interval, progress=False, auto_adjust=True)
-            elapsed = time.time() - t0
-            tag = f"yf({'OK' if not df.empty else 'EMPTY'},{elapsed:.1f}s)"
-        except Exception as e:
-            tag = f"yf(ERR:{str(e)[:20]})"
-        # Test direct HTTP
-        try:
-            t0 = time.time()
-            df2 = _fetch_yahoo_direct(ticker, interval, period)
-            elapsed2 = time.time() - t0
-            tag2 = f"direct({'OK:'+str(len(df2))+'rows' if not df2.empty else 'EMPTY'},{elapsed2:.1f}s)"
-        except Exception as e2:
-            tag2 = f"direct(ERR:{str(e2)[:20]})"
-        results.append(f"{ticker}: {tag} | {tag2}")
-    
-    msg = "\n".join(results)
-    await u.message.reply_text(f"yfinance debug:\n{msg}")
-
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
     cmds=[("start",start),("help",help_cmd),("flipstatus",flipstatus_cmd),
           ("signal",signal_cmd),("chart",chart_cmd),
-
+          ("tp",tp_cmd),("summary",summary_cmd),
           ("screener",screener_cmd),("screener_us",screener_us_cmd),
           ("screener_ideal",screener_ideal_cmd),
-
+          ("doji",doji_cmd),("volmom",volmom_cmd),
           ("firstgreen",firstgreen_cmd),
           ("pattern",pattern_cmd),
           ("auto",auto_cmd),
           ("doji_auto",doji_auto_cmd),
-          ("debug",debug_cmd),
-
-          ("volume",volume_cmd),("trend",trend_cmd),
-          ("mdp",mdp_cmd)]
+          ("volmom_auto",volmom_auto_cmd),
+          ("volume",volume_cmd),("trend",trend_cmd)]
     for cmd,fn in cmds: tg.add_handler(CommandHandler(cmd,fn))
     jq=tg.job_queue
     jq.run_daily(evening_summary,time=dtime(16,5,tzinfo=WIB))
     jq.run_repeating(flip_pixel_scan,interval=1800,first=300)
     jq.run_repeating(doji_auto_scan,interval=3600,first=600)
+    jq.run_repeating(volmom_auto_scan,interval=1800,first=900)
     jq.run_repeating(breakout_alert_scan,interval=1800,first=1200)
-    # MDP auto 3x sehari
-    jq.run_daily(mdp_auto_scan, time=dtime(8,45,tzinfo=WIB))
-    jq.run_daily(mdp_auto_scan, time=dtime(11,0,tzinfo=WIB))
-    jq.run_daily(mdp_auto_scan, time=dtime(15,30,tzinfo=WIB))
 
     # ══ IDEAL SCREENER AUTO SCHEDULE ══
     # Market open pagi IDX: 09:05 WIB
@@ -3320,11 +3045,11 @@ def run_bot():
     if now.weekday()>=5:
         log.info("Bot start " + now.strftime('%A') + " - auto scan OFF")
     else:
-        log.info("IDX QUANT Bot v5.2 polling - Holiday+SL fix aktif")
+        log.info("IDX QUANT Bot v5.1 polling - Holiday+SL fix aktif")
     tg.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__=="__main__":
-    log.info("IDX QUANT v5.2 port " + str(PORT))
+    log.info("IDX QUANT v5.1 port " + str(PORT))
     import threading as _th
     _th.Thread(target=run_flask,daemon=True).start()
     run_bot()
