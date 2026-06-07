@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "main-fixed-14-1.py"]
+CMD ["python", "main-fix-final.py"]
