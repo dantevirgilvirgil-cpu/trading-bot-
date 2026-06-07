@@ -237,7 +237,14 @@ def get_cached_data(ticker, interval, period):
                         progress=False, auto_adjust=True)
         if df is not None and not df.empty:
             if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(-1)
+                # Cari level yang berisi Close/High/Low
+                for lvl in range(df.columns.nlevels):
+                    vals = df.columns.get_level_values(lvl).tolist()
+                    if any(v in ['Close','High','Low','Open','Volume'] for v in vals):
+                        df.columns = df.columns.get_level_values(lvl)
+                        break
+                else:
+                    df.columns = df.columns.get_level_values(0)
             df.columns = [c.title() for c in df.columns]
             _data_cache[key] = (now, df)
         return df if df is not None else pd.DataFrame()
@@ -255,7 +262,13 @@ def get_signal(code,tf="D"):
             df = get_cached_data(ticker, iv, per)
         if df.empty or len(df)<5: return{"error":"Data kurang"}
         if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(-1)
+            for lvl in range(df.columns.nlevels):
+                vals = df.columns.get_level_values(lvl).tolist()
+                if any(v in ['Close','High','Low','Open','Volume'] for v in vals):
+                    df.columns = df.columns.get_level_values(lvl)
+                    break
+            else:
+                df.columns = df.columns.get_level_values(0)
         df.columns = [c.title() for c in df.columns]
         if "Close" not in df.columns: return{"error":f"Cols={df.columns.tolist()}"}
         c=df["Close"].squeeze(); h=df["High"].squeeze()
