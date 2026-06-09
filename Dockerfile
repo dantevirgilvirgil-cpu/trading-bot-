@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "main-35-fixed.py"]
+CMD ["python", "main-35-1.py"]
