@@ -1655,7 +1655,11 @@ async def help_cmd(u,c):
         "`/volmom_auto on|off` — Toggle auto volmom\n\n"
         "*🟢 First Green (BARU):*\n"
         "`/firstgreen` — IDX first green 30M/1H/4H/D\n"
-        "`/firstgreen us` — US first green"
+        "`/firstgreen us` — US first green\n\n"
+        "🏹 *Pivot Arrow Screener (BARU):*\n"
+        "`/pivot` — Scan IDX: harga di lower/upper trendline\n"
+        "`/pivot us` — Scan US stocks\n"
+        "Auto alert panah ijo tiap 30 menit"
     )
     msg2 = (
         "*🤖 Auto Scan:*\n"
@@ -3434,6 +3438,214 @@ async def mdp_auto_scan(context):
 
 
 
+
+# ══════════════════════════════════════════════════════════════
+# PIVOT ARROW SCREENER — Scan saham yang harga menyentuh
+# Lower Trendline (panah ijo) atau Upper TL (panah kuning)
+# Multi-TF: 30M, 1H, 4H, D
+# ══════════════════════════════════════════════════════════════
+
+def pivot_touch_scan_one(code, tf="D"):
+    """
+    Cek apakah harga saat ini dekat dengan pivot low (lower trendline).
+    Return dict atau None.
+    """
+    import math
+    try:
+        r = get_signal(code, tf)
+        if "error" in r: return None
+        df = r["df"]
+        if df is None or df.empty or len(df) < 15: return None
+        highs  = df["High"].squeeze().values.astype(float)
+        lows   = df["Low"].squeeze().values.astype(float)
+        closes = df["Close"].squeeze().values.astype(float)
+        price  = float(closes[-1])
+        if math.isnan(price) or price <= 0: return None
+
+        tl = detect_trendlines(highs, lows, n=min(len(highs), 30))
+        if not tl: return None
+
+        result = None
+
+        # ── Cek Lower TL (panah ijo) ── harga dekat pivot low
+        if "lower" in tl:
+            lo = tl["lower"]
+            # Nilai lower TL di candle terakhir
+            tl_val = lo["slope"] * (min(len(highs), 30) - 1) + lo["intercept"]
+            # Harga dalam 2% dari lower TL = touch
+            if tl_val > 0 and abs(price - tl_val) / tl_val < 0.025:
+                result = {
+                    "code":    code.upper(),
+                    "ticker":  r["ticker"],
+                    "tf":      tf,
+                    "price":   price,
+                    "chg":     r["chg"],
+                    "score":   r["score"],
+                    "signal":  r["sigs"][0].split("-")[0].strip() if r["sigs"] else "No Signal",
+                    "touch":   "lower",   # panah ijo
+                    "tl_val":  round(tl_val, 0),
+                    "rsi":     r.get("rsi", 50),
+                }
+
+        # ── Cek Upper TL (panah kuning) ── harga dekat pivot high
+        if result is None and "upper" in tl:
+            up = tl["upper"]
+            tl_val = up["slope"] * (min(len(highs), 30) - 1) + up["intercept"]
+            if tl_val > 0 and abs(price - tl_val) / tl_val < 0.025:
+                result = {
+                    "code":    code.upper(),
+                    "ticker":  r["ticker"],
+                    "tf":      tf,
+                    "price":   price,
+                    "chg":     r["chg"],
+                    "score":   r["score"],
+                    "signal":  r["sigs"][0].split("-")[0].strip() if r["sigs"] else "No Signal",
+                    "touch":   "upper",   # panah kuning
+                    "tl_val":  round(tl_val, 0),
+                    "rsi":     r.get("rsi", 50),
+                }
+
+        return result
+    except:
+        return None
+
+
+def pivot_scan_multi_tf(stock_list, tfs=None, max_workers=12):
+    """Scan pivot touch multi-TF secara paralel."""
+    if tfs is None:
+        tfs = ["30M", "1H", "4H", "D"]
+    pairs = [(c, tf) for c in stock_list for tf in tfs]
+    results_lower = []  # panah ijo
+    results_upper = []  # panah kuning
+
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        futures = {ex.submit(pivot_touch_scan_one, c, tf): (c, tf) for c, tf in pairs}
+        for f in as_completed(futures):
+            try:
+                r = f.result(timeout=20)
+                if r:
+                    if r["touch"] == "lower": results_lower.append(r)
+                    else: results_upper.append(r)
+            except: pass
+
+    results_lower.sort(key=lambda x: x["score"], reverse=True)
+    results_upper.sort(key=lambda x: x["score"], reverse=True)
+    return results_lower, results_upper
+
+
+async def pivot_cmd(u, c):
+    """
+    /pivot [us]  — Scan saham yang harga menyentuh trendline pivot
+    Panah ijo (lower TL) = potensi bounce naik
+    Panah kuning (upper TL) = potensi resistance/break
+    """
+    args   = c.args or []
+    market = "us" if (args and args[0].lower() == "us") else "idx"
+    flag   = "🇺🇸" if market == "us" else "🇮🇩"
+    label  = "US" if market == "us" else "IDX"
+    stocks = US_STOCKS if market == "us" else IDX_STOCKS
+
+    m = await u.message.reply_text(
+        f"⏳ Scanning pivot touch {flag} {label}\nTF: 30M / 1H / 4H / D...",
+        parse_mode="Markdown")
+
+    loop = asyncio.get_event_loop()
+    lower_res, upper_res = await loop.run_in_executor(
+        None, lambda: pivot_scan_multi_tf(stocks))
+
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    is_idr = (market == "idx")
+
+    lines = [
+        f"🏹 *PIVOT ARROW SCREENER — {flag} {label}*",
+        f"🕐 {now_str}",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+
+    if lower_res:
+        lines.append("🟢 *PANAH IJO — Lower TL Touch (Potensi Bounce):*")
+        for r in lower_res[:10]:
+            px  = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+            chg = f"{r['chg']:+.1f}%"
+            lines.append(
+                f"✅ *{r['code']}* TF:`{r['tf']}` `{px}` {chg} "
+                f"| Score:`{r['score']}/8` | RSI:`{r['rsi']:.0f}`"
+            )
+        lines.append("")
+
+    if upper_res:
+        lines.append("🟡 *PANAH KUNING — Upper TL Touch (Resistance/Break):*")
+        for r in upper_res[:10]:
+            px  = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+            chg = f"{r['chg']:+.1f}%"
+            lines.append(
+                f"⚡ *{r['code']}* TF:`{r['tf']}` `{px}` {chg} "
+                f"| Score:`{r['score']}/8` | RSI:`{r['rsi']:.0f}`"
+            )
+
+    if not lower_res and not upper_res:
+        lines.append("❌ Tidak ada saham menyentuh trendline saat ini.")
+
+    lines += [
+        "━━━━━━━━━━━━━━━━━━━━",
+        "🟢 Panah Ijo = harga di Lower TL → potensi bounce",
+        "🟡 Panah Kuning = harga di Upper TL → resistance/breakout",
+    ]
+
+    await m.edit_text(chr(10).join(lines), parse_mode="Markdown")
+
+    # Kirim chart top pick panah ijo
+    if lower_res:
+        best = lower_res[0]
+        buf, _ = generate_chart(best["code"], best["tf"])
+        if buf:
+            px = f"Rp {best['price']:,.0f}" if is_idr else f"${best['price']:,.2f}"
+            await u.message.reply_photo(
+                photo=buf,
+                caption=(f"🟢 PIVOT LOWER TL: *{best['code']}* TF:{best['tf']}\n"
+                         f"`{px}` {best['chg']:+.1f}% | Score:{best['score']}/8 "
+                         f"| RSI:{best['rsi']:.0f}\n{now_str}"),
+                parse_mode="Markdown")
+
+
+async def pivot_auto_scan(context):
+    """Auto scan pivot touch tiap 30 menit saat market buka."""
+    if not is_idx_trading_day(): return
+    if not auto_users: return
+    if not (is_idx_market_open() or is_us_market_open()): return
+
+    lower_res, upper_res = pivot_scan_multi_tf(IDX_STOCKS)
+    if not lower_res: return  # hanya alert kalau ada panah ijo
+
+    now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    lines = [
+        "🟢 *AUTO ALERT — PANAH IJO TERDETEKSI!*",
+        f"🕐 {now_str}",
+        "━━━━━━━━━━━━━━━━━━━━",
+    ]
+    for r in lower_res[:8]:
+        px  = f"Rp {r['price']:,.0f}"
+        chg = f"{r['chg']:+.1f}%"
+        lines.append(
+            f"✅ *{r['code']}* TF:`{r['tf']}` `{px}` {chg} "
+            f"| Score:`{r['score']}/8` | RSI:`{r['rsi']:.0f}`"
+        )
+    lines += ["━━━━━━━━━━━━━━━━━━━━", "💡 Harga di Lower TL — potensi bounce!"]
+
+    bot = context.bot
+    for uid in auto_users:
+        try:
+            await bot.send_message(int(uid), chr(10).join(lines), parse_mode="Markdown")
+            if lower_res:
+                best = lower_res[0]
+                buf, _ = generate_chart(best["code"], best["tf"])
+                if buf:
+                    await bot.send_photo(int(uid), photo=buf,
+                        caption=f"🟢 PANAH IJO: {best['code']} TF:{best['tf']} | {now_str}")
+        except Exception as e:
+            log.error(f"pivot auto uid {uid}: {e}")
+
+
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
@@ -3444,6 +3656,7 @@ def run_bot():
           ("screener_ideal",screener_ideal_cmd),
           ("doji",doji_cmd),("volmom",volmom_cmd),
           ("firstgreen",firstgreen_cmd),
+          ("pivot",pivot_cmd),
           ("mdp",mdp_cmd),
           ("pattern",pattern_cmd),
           ("auto",auto_cmd),
@@ -3454,6 +3667,7 @@ def run_bot():
     jq=tg.job_queue
     jq.run_daily(evening_summary,time=dtime(16,5,tzinfo=WIB))
     jq.run_repeating(flip_pixel_scan,interval=1800,first=60)
+    jq.run_repeating(pivot_auto_scan,interval=1800,first=600)
 
     # Reset flip state tiap pagi 09:00 WIB supaya saham bisa re-trigger
     async def reset_flip_state(ctx):
