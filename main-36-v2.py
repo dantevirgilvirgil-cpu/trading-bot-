@@ -3546,12 +3546,14 @@ async def pivot_cmd(u, c):
     stocks = US_STOCKS if market == "us" else IDX_STOCKS
 
     m = await u.message.reply_text(
-        f"⏳ Scanning pivot touch {flag} {label}\nTF: 30M / 1H / 4H / D...",
+        f"⏳ Scanning pivot touch {flag} {label}\nTF: 1H / 4H / D (bisa 60 detik)...",
         parse_mode="Markdown")
 
+    # Batasi 80 saham teratas supaya tidak timeout
+    scan_stocks = stocks[:80] if len(stocks) > 80 else stocks
     loop = asyncio.get_event_loop()
     lower_res, upper_res = await loop.run_in_executor(
-        None, lambda: pivot_scan_multi_tf(stocks))
+        None, lambda: pivot_scan_multi_tf(scan_stocks, tfs=["1H","4H","D"]))
 
     now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
     is_idr = (market == "idx")
