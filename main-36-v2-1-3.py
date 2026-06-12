@@ -1884,10 +1884,9 @@ def fmt_now(): return datetime.now(WIB).strftime("%d-%b-%Y %H:%M")+" WIB"
 # ══════════════════════════════════════════
 def calculate_tp_sl(r):
     """
-    Hitung TP1/TP2/TP3 dan SL1/SL2/SL3 otomatis dari data sinyal.
-    - SL berbasis struktur harga (swing low, EMA support) bukan fixed %
-    - TP berbasis risk (SL1) sehingga R/R = dinamis per saham
-    - R/R dihitung dari TP3 vs SL1
+    TP berbasis target harga nyata (swing high, EMA resistance, Fib).
+    SL berbasis swing low + ATR buffer.
+    R/R dihitung mundur dari target vs risk — hasilnya dinamis per saham.
     """
     price  = r["price"]
     e9     = r["e9"]
@@ -1895,63 +1894,64 @@ def calculate_tp_sl(r):
     e50    = r["e50"]
     is_idr = r["ticker"].endswith(".JK")
 
-    # ATR sejati: True Range 14 candle terakhir
+    # ── ATR sejati 14 candle ──
     try:
         df   = r["df"]
         hi14 = df["High"].squeeze().tail(14).values.astype(float)
         lo14 = df["Low"].squeeze().tail(14).values.astype(float)
         cl14 = df["Close"].squeeze().tail(14).values.astype(float)
-        tr_list = []
-        for i in range(1, len(hi14)):
-            tr_list.append(max(
-                hi14[i] - lo14[i],
-                abs(hi14[i] - cl14[i-1]),
-                abs(lo14[i] - cl14[i-1])
-            ))
-        atr = float(np.mean(tr_list)) if tr_list else price * 0.03
+        tr_list = [max(hi14[i]-lo14[i], abs(hi14[i]-cl14[i-1]), abs(lo14[i]-cl14[i-1]))
+                   for i in range(1, len(hi14))]
+        atr = float(np.mean(tr_list)) if tr_list else price * 0.025
     except:
-        atr = price * 0.03
+        atr = price * 0.025
 
-    # Swing Low terdekat (10 candle terakhir) untuk SL1
+    # ── Swing High (20 candle) & Swing Low (10 candle) ──
     try:
-        lo10      = df["Low"].squeeze().tail(10).values.astype(float)
-        swing_low = float(np.min(lo10))
+        hi20       = df["High"].squeeze().tail(20).values.astype(float)
+        lo10       = df["Low"].squeeze().tail(10).values.astype(float)
+        swing_high = float(np.max(hi20))
+        swing_low  = float(np.min(lo10))
     except:
-        swing_low = price - atr
+        swing_high = price * 1.15
+        swing_low  = price - atr
 
-    # SL berbasis struktur harga
-    # SL1: tepat di bawah swing low 10 candle (buffer 0.5%)
+    # ── SL berbasis struktur harga ──
+    # SL1: di bawah swing low 10c (buffer 1 ATR)
     # SL2: di bawah MA20
     # SL3: di bawah MA50
-    sl1_raw = swing_low * 0.995
-    sl2_raw = e20       * 0.990
-    sl3_raw = e50       * 0.985
+    sl1 = max(swing_low - atr * 0.5, price * 0.88)   # max -12%
+    sl2 = max(e20 * 0.985,           price * 0.82)   # max -18%
+    sl3 = max(e50 * 0.980,           price * 0.75)   # max -25%
 
-    # Batas maksimum penurunan
-    sl1 = max(sl1_raw, price * 0.85)
-    sl2 = max(sl2_raw, price * 0.78)
-    sl3 = max(sl3_raw, price * 0.70)
+    # Pastikan sl1 < price dan urutan benar
+    sl1 = min(sl1, price * 0.97)
+    sl2 = min(sl2, sl1 * 0.97)
+    sl3 = min(sl3, sl2 * 0.97)
 
-    # sl1 wajib di bawah harga, urutan sl1 > sl2 > sl3
-    sl1 = min(sl1, price * 0.995)
-    sl2 = min(sl2, sl1  * 0.985)
-    sl3 = min(sl3, sl2  * 0.985)
+    risk = max(price - sl1, atr * 0.5)   # risk minimal 0.5 ATR
 
-    # Risk dari SL1 (minimal 0.5 ATR)
-    risk = max(price - sl1, atr * 0.5)
+    # ── TP berbasis target harga nyata ──
+    # TP1: EMA9 jika di atas harga, atau harga + 1 ATR
+    # TP2: EMA20 jika di atas harga, atau swing_high * 0.95
+    # TP3: swing_high (target penuh) atau Fib 61.8% dari swing range
+    fib_range = swing_high - swing_low
+    fib_618   = swing_low + 0.618 * fib_range   # Fib 61.8% retracement target
 
-    # TP berbasis risk (bukan ATR flat)
-    # TP1=1x, TP2=2x, TP3=3x risk → R/R target 1:3
-    tp1 = price + (1.0 * risk)
-    tp2 = price + (2.0 * risk)
-    tp3 = price + (3.0 * risk)
+    tp1_candidates = [e9, price + 1.0 * atr]
+    tp1 = max(c for c in tp1_candidates if c > price) if any(c > price for c in tp1_candidates) else price + atr
 
-    # Koreksi minimal
-    tp1 = max(tp1, e9  * 1.005)
-    tp2 = max(tp2, tp1 * 1.02)
-    tp3 = max(tp3, tp2 * 1.02)
+    tp2_candidates = [e20, fib_618 * 0.90, price + 1.5 * atr]
+    tp2 = max(c for c in tp2_candidates if c > tp1) if any(c > tp1 for c in tp2_candidates) else tp1 * 1.03
 
-    # R/R dinamis
+    tp3_candidates = [swing_high * 0.98, fib_618, price + 2.5 * atr]
+    tp3 = max(c for c in tp3_candidates if c > tp2) if any(c > tp2 for c in tp3_candidates) else tp2 * 1.03
+
+    # Pastikan urutan tp1 < tp2 < tp3
+    tp1 = min(tp1, tp2 * 0.99)
+    tp2 = min(tp2, tp3 * 0.99)
+
+    # ── R/R dinamis ──
     reward = tp3 - price
     rr     = round(reward / risk, 1) if risk > 0 else 0.0
 
@@ -1961,8 +1961,7 @@ def calculate_tp_sl(r):
     return {
         "tp1": tp1, "tp2": tp2, "tp3": tp3,
         "sl1": sl1, "sl2": sl2, "sl3": sl3,
-        "rr":  rr,
-        "atr": atr,
+        "rr":  rr,  "atr": atr,
         "tp1_str": fmt_p(tp1), "tp2_str": fmt_p(tp2), "tp3_str": fmt_p(tp3),
         "sl1_str": fmt_p(sl1), "sl2_str": fmt_p(sl2), "sl3_str": fmt_p(sl3),
         "tp1_pct": (tp1-price)/price*100,
