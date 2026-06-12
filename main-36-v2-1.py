@@ -1024,6 +1024,59 @@ def check_pattern_breakout(code, tf="D"):
     return alerts
 
 
+# ══ VOLUME PROFILE ══
+def compute_volume_profile(highs, lows, closes, vols, n_bins=24):
+    """
+    Hitung Volume Profile: distribusi volume per price bucket.
+    Returns:
+        bins_center: list harga tengah tiap bucket
+        bin_vols:    list total volume tiap bucket
+        poc:         Price Of Control (harga dengan volume tertinggi)
+        val:         Value Area Low  (70% volume bawah)
+        vah:         Value Area High (70% volume atas)
+    """
+    price_min = float(np.min(lows))
+    price_max = float(np.max(highs))
+    if price_max <= price_min: price_max = price_min * 1.01
+    edges = np.linspace(price_min, price_max, n_bins + 1)
+    bin_vols = np.zeros(n_bins)
+
+    for i in range(len(closes)):
+        h = float(highs[i]); l = float(lows[i]); v = float(vols[i])
+        if h == l: h = l * 1.0001
+        candle_range = h - l
+        for b in range(n_bins):
+            b_lo = edges[b]; b_hi = edges[b + 1]
+            overlap = min(h, b_hi) - max(l, b_lo)
+            if overlap > 0:
+                bin_vols[b] += v * (overlap / candle_range)
+
+    bins_center = [(edges[b] + edges[b + 1]) / 2 for b in range(n_bins)]
+    poc_idx = int(np.argmax(bin_vols))
+    poc     = bins_center[poc_idx]
+
+    # Value Area: 70% dari total volume di sekitar POC
+    total_vol    = bin_vols.sum()
+    target_vol   = total_vol * 0.70
+    va_lo_idx    = poc_idx
+    va_hi_idx    = poc_idx
+    accumulated  = bin_vols[poc_idx]
+    while accumulated < target_vol:
+        can_expand_lo = va_lo_idx > 0
+        can_expand_hi = va_hi_idx < n_bins - 1
+        if not can_expand_lo and not can_expand_hi: break
+        add_lo = bin_vols[va_lo_idx - 1] if can_expand_lo else 0
+        add_hi = bin_vols[va_hi_idx + 1] if can_expand_hi else 0
+        if add_hi >= add_lo:
+            va_hi_idx += 1; accumulated += add_hi
+        else:
+            va_lo_idx -= 1; accumulated += add_lo
+
+    val = bins_center[va_lo_idx]
+    vah = bins_center[va_hi_idx]
+    return bins_center, bin_vols.tolist(), poc, val, vah
+
+
 # ══ CHART GENERATOR ══
 def generate_chart(code, tf="D", volume_spikes=None):
     r=get_signal(code,tf)
@@ -1486,6 +1539,344 @@ def generate_chart(code, tf="D", volume_spikes=None):
     buf.seek(0); plt.close(fig)
     return buf,None
 
+
+# ══ CHART + VOLUME PROFILE (tampilan seperti TradingView) ══
+def generate_chart_vp(code, tf="D"):
+    """
+    Chart candlestick lengkap + Volume Profile horizontal di sisi kanan.
+    Volume Profile: bar horizontal menunjukkan distribusi volume per range harga.
+    POC  = Price of Control  (bar terpanjang = harga paling aktif)
+    VAH  = Value Area High   (batas atas 70% volume)
+    VAL  = Value Area Low    (batas bawah 70% volume)
+    """
+    r = get_signal(code, tf)
+    if "error" in r: return None, r["error"]
+
+    df    = r["df"]; close = df["Close"].squeeze(); high = df["High"].squeeze()
+    low   = df["Low"].squeeze();  vol  = df["Volume"].squeeze()
+    n     = min(len(df), 80)
+    df    = df.iloc[-n:]; close = close.iloc[-n:]; high = high.iloc[-n:]
+    low   = low.iloc[-n:];   vol  = vol.iloc[-n:]
+    e9    = r["ema9"].iloc[-n:];  e20 = r["ema20"].iloc[-n:]; e50 = r["ema50"].iloc[-n:]
+    rsi_s = r["rsi_s"].iloc[-n:]; macd_l = r["macd_l"].iloc[-n:]
+    macd_sg = r["macd_sg"].iloc[-n:]; macd_h = r["macd_h"].iloc[-n:]
+    sk    = r["stoch_k"].iloc[-n:]; sd = r["stoch_d"].iloc[-n:]
+    idx   = range(n)
+
+    # ── Theme ──
+    BG="#ffffff"; BG2="#f8f9fa"; GRID="#e0e3eb"
+    GREEN="#089981"; RED="#f23645"; ORANGE="#ef6c00"
+    BLUE="#1976d2"; PINK="#9c27b0"; TEXT="#131722"; TEXT2="#555f6d"
+    MID_GREEN="#1b5e20"; MID_RED="#b71c1c"; GRAY="#cfd8dc"
+    VP_NORMAL="#90a4ae"; VP_POC="#ff6f00"; VP_VAH="#26a69a"; VP_VAL="#26a69a"
+
+    opens  = df["Open"].squeeze().values; closes = close.values
+    highs  = high.values;  lows  = low.values; vols = vol.values
+    e9v    = e9.values;  e20v = e20.values; e50v = e50.values
+    rsi_v  = rsi_s.values; macd_v = macd_l.values; macd_sig_v = macd_sg.values
+    avg_v  = np.mean(vols)
+    is_idr = r["ticker"].endswith(".JK")
+    price_fmt = lambda p: f"Rp {p:,.0f}" if is_idr else f"${p:,.2f}"
+    lp = closes[-1]
+
+    # ── Compute VP ──
+    n_bins = 30
+    bins_center, bin_vols, poc, val, vah = compute_volume_profile(highs, lows, closes, vols, n_bins=n_bins)
+    max_bv = max(bin_vols) if max(bin_vols) > 0 else 1
+
+    # ── Layout: main chart (ax1) + VP panel (ax_vp) side by side ──
+    # GridSpec: 2 columns (chart wide, VP narrow) × 6 rows
+    fig = plt.figure(figsize=(16, 12), facecolor=BG)
+    gs  = plt.GridSpec(6, 2, figure=fig,
+                       width_ratios=[5, 1],
+                       height_ratios=[5, 1.0, 1.0, 1.0, 0.35, 0.35],
+                       hspace=0.04, wspace=0.02)
+
+    ax1    = fig.add_subplot(gs[0, 0])   # candlestick
+    ax_vp  = fig.add_subplot(gs[0, 1])   # volume profile
+    ax2    = fig.add_subplot(gs[1, 0])   # volume bar
+    ax3    = fig.add_subplot(gs[2, 0])   # MACD
+    ax4    = fig.add_subplot(gs[3, 0])   # Stoch/RSI
+    ax_p1  = fig.add_subplot(gs[4, 0])   # pixel trend
+    ax_p2  = fig.add_subplot(gs[5, 0])   # pixel volume
+
+    # Dummy axes for empty right cells below VP
+    for r_idx in range(1, 6):
+        ax_dummy = fig.add_subplot(gs[r_idx, 1])
+        ax_dummy.set_visible(False)
+
+    for ax in [ax1, ax2, ax3, ax4]:
+        ax.set_facecolor(BG2)
+        ax.tick_params(colors=TEXT2, labelsize=7)
+        for s in ax.spines.values(): s.set_color(GRID)
+        ax.grid(True, color=GRID, linewidth=0.5, alpha=0.8)
+
+    for ax in [ax_p1, ax_p2]:
+        ax.set_facecolor("#f0f2f5")
+        for s in ax.spines.values(): s.set_color(GRID)
+        ax.set_yticks([]); ax.grid(False)
+
+    ax_vp.set_facecolor(BG2)
+    for s in ax_vp.spines.values(): s.set_color(GRID)
+    ax_vp.grid(False)
+
+    # ── Candlesticks ──
+    for i in idx:
+        o, c_, h_, l_ = opens[i], closes[i], highs[i], lows[i]
+        color = GREEN if c_ >= o else RED
+        ax1.plot([i, i], [l_, h_], color=color, linewidth=0.8, zorder=2)
+        ax1.bar(i, abs(c_-o), bottom=min(o,c_), color=color,
+                edgecolor=color, linewidth=0.3, width=0.7, zorder=3)
+
+    # ── Volume spike arrows ──
+    for i in idx:
+        vr_i = vols[i] / avg_v if avg_v > 0 else 1
+        if vr_i >= 2.0:
+            is_buy = closes[i] >= opens[i]
+            arr_c = MID_GREEN if is_buy else MID_RED
+            y_pos = lows[i]*0.998 if is_buy else highs[i]*1.002
+            offset = -abs(highs[i]-lows[i])*2 if is_buy else abs(highs[i]-lows[i])*2
+            ax1.annotate("", xy=(i, y_pos), xytext=(i, y_pos+offset),
+                arrowprops=dict(arrowstyle="->", color=arr_c, lw=2.5), zorder=10)
+            ax1.text(i, y_pos+offset*1.3, f"{vr_i:.1f}x",
+                     color=arr_c, fontsize=6, ha='center', fontweight='bold')
+
+    # ── EMAs ──
+    ax1.plot(idx, e50v, color=BLUE,   linewidth=1.4, label=f"MA50:{r['e50']:,.0f}", zorder=4)
+    ax1.plot(idx, e20v, color=ORANGE, linewidth=1.6, label=f"MA20:{r['e20']:,.0f}", zorder=5)
+    ax1.plot(idx, e9v,  color=PINK,   linewidth=1.1, linestyle='--', label=f"MA9:{r['e9']:,.0f}", zorder=6)
+
+    # ── Bollinger ──
+    bb_m = close.rolling(20).mean(); bb_s = close.rolling(20).std()
+    bb_u = (bb_m+2*bb_s).iloc[-n:]; bb_l = (bb_m-2*bb_s).iloc[-n:]
+    ax1.fill_between(idx, bb_u.values, bb_l.values, alpha=0.05, color=BLUE)
+    ax1.plot(idx, bb_u.values, color=BLUE, linewidth=0.5, linestyle=':', alpha=0.4)
+    ax1.plot(idx, bb_l.values, color=BLUE, linewidth=0.5, linestyle=':', alpha=0.4)
+
+    # ── Fibonacci ──
+    swing_high = float(max(highs)); swing_low = float(min(lows)); fib_range = swing_high - swing_low
+    fib_levels = {
+        "0.0":   (swing_high,                   "#424242", "0.0%"),
+        "23.6":  (swing_high-0.236*fib_range,   "#827717", "23.6%"),
+        "38.2":  (swing_high-0.382*fib_range,   "#e65100", "38.2%"),
+        "50.0":  (swing_high-0.500*fib_range,   "#880e4f", "50.0%"),
+        "61.8":  (swing_high-0.618*fib_range,   "#1b5e20", "61.8% ★"),
+        "78.6":  (swing_high-0.786*fib_range,   "#0d47a1", "78.6%"),
+        "100.0": (swing_low,                     "#b71c1c", "100%"),
+    }
+    fib_styles = {"0.0":(0.5,"--"),"23.6":(0.6,"--"),"38.2":(0.8,"-."),"50.0":(0.8,"-."),"61.8":(1.2,"-"),"78.6":(0.8,"-."),"100.0":(0.5,"--")}
+    for key, (fval, fcol, flabel) in fib_levels.items():
+        lw, ls = fib_styles[key]
+        ax1.axhline(fval, color=fcol, linewidth=lw, linestyle=ls, alpha=0.6, zorder=3)
+        ax1.text(0.5, fval, f" {flabel}  {price_fmt(fval)}", color=fcol, fontsize=6.5,
+                 va='center', alpha=0.9,
+                 bbox=dict(boxstyle='round,pad=0.15', facecolor=BG, edgecolor=fcol, alpha=0.6, linewidth=0.4))
+
+    pc_ = GREEN if lp >= closes[-2] else RED
+    ax1.axhline(lp, color=pc_, linewidth=0.8, linestyle='--', alpha=0.8)
+    ax1.text(n-0.5, lp, f" {price_fmt(lp)}", color="white", fontsize=8, fontweight='bold',
+             va='center', bbox=dict(boxstyle='round,pad=0.25', facecolor=pc_, edgecolor=pc_, linewidth=0))
+
+    # ── Trendlines ──
+    try:
+        tl = detect_trendlines(highs, lows, min(n, 30))
+        tl_offset = n - min(n, 30)
+        if "upper" in tl:
+            u2 = tl["upper"]
+            x0 = tl_offset + u2["x0"]; x1 = tl_offset + u2["x1"]
+            ax1.plot([x0, x1], [u2["y0"], u2["y1"]], color="#f39c12", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7)
+            ax1.text(x1+0.3, u2["y1"], price_fmt(u2["y1"]), color='#f39c12', fontsize=6.5, va='center',
+                     fontweight='bold', bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#f39c12', alpha=0.85, linewidth=0.8), zorder=10)
+        if "lower" in tl:
+            lo2 = tl["lower"]
+            x0 = tl_offset + lo2["x0"]; x1 = tl_offset + lo2["x1"]
+            ax1.plot([x0, x1], [lo2["y0"], lo2["y1"]], color="#27ae60", linewidth=1.4, linestyle='--', alpha=0.85, zorder=7)
+            ax1.text(x1+0.3, lo2["y1"], price_fmt(lo2["y1"]), color='#27ae60', fontsize=6.5, va='center',
+                     fontweight='bold', bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='#27ae60', alpha=0.85, linewidth=0.8), zorder=10)
+    except Exception as tl_err:
+        log.warning(f"VP trendline error: {tl_err}")
+
+    sig_txt  = r['sigs'][0].split('-')[0].strip() if r['sigs'] else 'No Signal'
+    chg_s    = f"+{r['chg']:.2f}%" if r['chg'] >= 0 else f"{r['chg']:.2f}%"
+    liq_tag  = " | ⚠️LOW LIQ" if not r.get("liquid", True) else ""
+    ax1.set_title(f"  {r['ticker']}  |  TF:{r['tf']}  |  {price_fmt(lp)}  {chg_s}  |  {r['trend']}  |  Score:{r['score']}/8  |  {sig_txt}{liq_tag}  📊VP",
+                  color=TEXT, fontsize=9, fontweight='bold', loc='left', pad=6,
+                  bbox=dict(boxstyle='round,pad=0.3', facecolor='#e8eaf6', edgecolor=GRID))
+    ax1.legend(loc='upper left', fontsize=7, facecolor=BG, edgecolor=GRID, labelcolor=TEXT2)
+    ax1.set_xlim(-0.5, n-0.5); ax1.tick_params(labelbottom=False)
+
+    # ══════════════════════════
+    # VOLUME PROFILE PANEL (ax_vp) — horizontal bars di kanan
+    # ══════════════════════════
+    price_min = float(np.min(lows)); price_max = float(np.max(highs))
+    bin_height = (price_max - price_min) / n_bins * 0.85  # slight gap antar bar
+
+    for b in range(n_bins):
+        bv   = bin_vols[b]
+        bc   = bins_center[b]
+        # Normalized width (0..1)
+        bar_w = bv / max_bv
+
+        # Warna: POC = orange tebal, VAH/VAL zone = teal, lainnya = abu
+        is_poc    = (b == int(np.argmax(bin_vols)))
+        in_va     = (val <= bc <= vah)
+        bar_color = VP_POC if is_poc else (VP_VAH if in_va else VP_NORMAL)
+        alpha_v   = 0.95 if is_poc else (0.75 if in_va else 0.55)
+
+        ax_vp.barh(bc, bar_w, height=bin_height, color=bar_color,
+                   alpha=alpha_v, left=0, zorder=3)
+
+        # Label harga di ujung bar (hanya bar signifikan)
+        if bar_w > 0.35 or is_poc:
+            ax_vp.text(bar_w + 0.02, bc, price_fmt(bc),
+                       color=TEXT2, fontsize=5, va='center', ha='left')
+
+    # POC line di seluruh panel
+    ax_vp.axhline(poc, color=VP_POC, linewidth=1.5, linestyle='--', alpha=0.9, zorder=5)
+    ax_vp.axhline(vah, color=VP_VAH, linewidth=0.9, linestyle=':', alpha=0.8, zorder=4)
+    ax_vp.axhline(val, color=VP_VAL, linewidth=0.9, linestyle=':', alpha=0.8, zorder=4)
+
+    # Label POC / VAH / VAL
+    ax_vp.text(0.02, poc, f"POC\n{price_fmt(poc)}",
+               color=VP_POC, fontsize=5.5, va='center', fontweight='bold',
+               transform=ax_vp.get_yaxis_transform(), zorder=6)
+    ax_vp.text(0.02, vah, f"VAH", color=VP_VAH, fontsize=5, va='bottom',
+               transform=ax_vp.get_yaxis_transform(), zorder=6)
+    ax_vp.text(0.02, val, f"VAL", color=VP_VAL, fontsize=5, va='top',
+               transform=ax_vp.get_yaxis_transform(), zorder=6)
+
+    # Shading Value Area
+    ax_vp.axhspan(val, vah, alpha=0.07, color=VP_VAH, zorder=1)
+
+    ax_vp.set_ylim(price_min * 0.998, price_max * 1.002)
+    ax_vp.set_xlim(0, 1.35)
+    ax_vp.set_xticks([]); ax_vp.set_yticks([])
+    ax_vp.set_title("VOL\nPROFILE", color=TEXT2, fontsize=6, pad=3)
+    ax_vp.tick_params(labelbottom=False, labelleft=False)
+
+    # ── Volume bar ──
+    vol_colors = [GREEN if closes[i] >= opens[i] else RED for i in idx]
+    ax2.bar(idx, vols, color=vol_colors, alpha=0.7, width=0.7)
+    ax2.axhline(avg_v, color=TEXT2, linewidth=0.7, linestyle='--', alpha=0.6)
+    for i in idx:
+        vr_i = vols[i]/avg_v if avg_v > 0 else 1
+        if vr_i >= 2.0:
+            is_buy = closes[i] >= opens[i]
+            ax2.bar(i, vols[i], color=MID_GREEN if is_buy else MID_RED, alpha=0.9, width=0.7)
+    ax2.set_ylabel("VOL", color=TEXT2, fontsize=7)
+    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x,_: f"{x/1e9:.1f}B" if x>=1e9 else f"{x/1e6:.0f}M" if x>=1e6 else f"{x/1e3:.0f}K"))
+    ax2.tick_params(labelbottom=False); ax2.set_xlim(-0.5, n-0.5)
+
+    # ── MACD ──
+    hist_colors = [GREEN if v >= 0 else RED for v in macd_h.values]
+    ax3.bar(idx, macd_h.values, color=hist_colors, alpha=0.7, width=0.7)
+    ax3.plot(idx, macd_l.values, color=BLUE, linewidth=1.1, label=f"MACD:{r['macd']:.1f}")
+    ax3.plot(idx, macd_sg.values, color=RED, linewidth=0.9, label=f"Sig:{r['msig']:.1f}")
+    ax3.axhline(0, color=TEXT2, linewidth=0.5)
+    ax3.set_ylabel("MACD", color=TEXT2, fontsize=7)
+    ax3.legend(loc='upper left', fontsize=6, facecolor=BG, edgecolor=GRID, labelcolor=TEXT2)
+    ax3.tick_params(labelbottom=False); ax3.set_xlim(-0.5, n-0.5)
+
+    # ── Stoch + RSI ──
+    ax4.plot(idx, sk.values, color=BLUE,   linewidth=1.1, label=f"K:{r['stoch']:.1f}")
+    ax4.plot(idx, sd.values, color=PINK,   linewidth=0.9, label="D")
+    ax4.plot(idx, rsi_v,     color=ORANGE, linewidth=0.9, linestyle='--', label=f"RSI:{r['rsi']:.1f}")
+    ax4.axhline(80, color=RED,   linewidth=0.5, linestyle='--', alpha=0.5)
+    ax4.axhline(20, color=GREEN, linewidth=0.5, linestyle='--', alpha=0.5)
+    ax4.axhline(50, color=TEXT2, linewidth=0.4, alpha=0.3)
+    ax4.fill_between(idx, 80, 100, alpha=0.05, color=RED)
+    ax4.fill_between(idx, 0,  20,  alpha=0.05, color=GREEN)
+    ax4.set_ylim(0, 100); ax4.set_ylabel("STOCH", color=TEXT2, fontsize=7)
+    ax4.legend(loc='upper left', fontsize=6, facecolor=BG, edgecolor=GRID, labelcolor=TEXT2)
+    ax4.set_xlim(-0.5, n-0.5)
+    step = max(1, n//10); ticks = list(range(0, n, step))
+    fmt_t = "%d/%m" if tf in ["D","W","M"] else "%H:%M"
+    labels = [df.index[i].strftime(fmt_t) for i in ticks]
+    ax4.set_xticks(ticks); ax4.set_xticklabels(labels, fontsize=7, color=TEXT2)
+
+    # ── Pixel rows (2 rows: Trend + Volume) ──
+    trend_vals = []
+    for i in range(n):
+        c_ = closes[i]; e9_ = e9v[i]; e20_ = e20v[i]; e50_ = e50v[i]
+        if c_>e9_ and e9_>e20_ and e20_>e50_:    trend_vals.append(3)
+        elif c_>e20_ and e20_>e50_:               trend_vals.append(2)
+        elif c_>e50_:                             trend_vals.append(1)
+        elif c_<e9_ and e9_<e20_ and e20_<e50_:  trend_vals.append(-3)
+        elif c_<e20_ and e20_<e50_:               trend_vals.append(-2)
+        elif c_<e50_:                             trend_vals.append(-1)
+        else:                                     trend_vals.append(0)
+
+    vol_vals = []
+    for i in range(n):
+        vr_ = vols[i]/avg_v if avg_v > 0 else 1
+        is_buy = closes[i] >= opens[i]
+        if vr_ >= 2.5:    vol_vals.append(3 if is_buy else -3)
+        elif vr_ >= 2.0:  vol_vals.append(2 if is_buy else -2)
+        elif vr_ >= 1.5:  vol_vals.append(1 if is_buy else -1)
+        else:             vol_vals.append(0)
+
+    def px_trend(v):
+        if v==3:    return "#00897b"
+        elif v==2:  return "#4db6ac"
+        elif v==1:  return "#b2dfdb"
+        elif v==-3: return "#e53935"
+        elif v==-2: return "#ef9a9a"
+        elif v==-1: return "#ffcdd2"
+        else:       return "#e0e0e0"
+
+    def px_volume(v):
+        if v==3:    return "#1b5e20"
+        elif v==2:  return "#43a047"
+        elif v==1:  return "#a5d6a7"
+        elif v==-3: return "#b71c1c"
+        elif v==-2: return "#e53935"
+        elif v==-1: return "#ffcdd2"
+        else:       return "#f5f5f5"
+
+    PH = 1.0
+    flip_up = []; flip_dn = []
+    for i in range(1, n):
+        if trend_vals[i-1] <= 0 and trend_vals[i] > 0: flip_up.append(i)
+        elif trend_vals[i-1] >= 0 and trend_vals[i] < 0: flip_dn.append(i)
+
+    for i in idx:
+        v = trend_vals[i]; col = px_trend(v)
+        if v > 0:   ax_p1.bar(i, PH,   bottom=0,  color=col, width=0.92, zorder=3)
+        elif v < 0: ax_p1.bar(i, -PH,  bottom=0,  color=col, width=0.92, zorder=3)
+        else:       ax_p1.bar(i, 0.1,  bottom=-0.05, color=GRAY, width=0.92, zorder=2)
+    for fi in flip_up: ax_p1.axvline(fi, color="#00695c", linewidth=2.0, alpha=0.9, zorder=5)
+    for fi in flip_dn: ax_p1.axvline(fi, color="#c62828", linewidth=2.0, alpha=0.9, zorder=5)
+    ax_p1.axhline(0, color=TEXT2, linewidth=0.5, alpha=0.4, zorder=4)
+    ax_p1.set_ylim(-1.4, 1.4); ax_p1.set_xlim(-0.5, n-0.5)
+    ax_p1.set_yticks([]); ax_p1.set_xticks([])
+    ax_p1.text(-0.5, 0, "TREND", color=TEXT2, fontsize=5.5, va='center', ha='right', fontweight='bold')
+
+    for i in idx:
+        v = vol_vals[i]; col = px_volume(v)
+        if v > 0:
+            ax_p2.bar(i, PH,  bottom=0, color=col, width=0.92, zorder=3)
+            if v == 3: ax_p2.text(i, 0.5, "▲", color="white", fontsize=5, ha='center', va='center', fontweight='bold', zorder=6)
+        elif v < 0:
+            ax_p2.bar(i, -PH, bottom=0, color=col, width=0.92, zorder=3)
+            if v == -3: ax_p2.text(i, -0.5, "▼", color="white", fontsize=5, ha='center', va='center', fontweight='bold', zorder=6)
+        else:
+            ax_p2.bar(i, PH,  bottom=0, color=col, width=0.92, zorder=2)
+    ax_p2.axhline(0, color=TEXT2, linewidth=0.5, alpha=0.4, zorder=4)
+    ax_p2.set_ylim(-1.4, 1.4); ax_p2.set_xlim(-0.5, n-0.5)
+    ax_p2.set_yticks([]); ax_p2.set_xticks([])
+    ax_p2.text(-0.5, 0, "VOL", color=TEXT2, fontsize=5.5, va='center', ha='right', fontweight='bold')
+
+    # ── Watermark ──
+    fig.text(0.45, 0.5, "IDX QUANT\nT1MO Style", color='#131722', alpha=0.03,
+             fontsize=48, ha='center', va='center', rotation=30, fontweight='bold')
+
+    plt.tight_layout(pad=0.5)
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=130, bbox_inches='tight', facecolor=BG)
+    buf.seek(0); plt.close(fig)
+    return buf, None
+
+
 def fmt_now(): return datetime.now(WIB).strftime("%d-%b-%Y %H:%M")+" WIB"
 
 # ══════════════════════════════════════════
@@ -1639,6 +2030,7 @@ async def help_cmd(u,c):
         "*📊 Signal & Chart:*\n"
         "`/signal KODE [TF]` — Analisis (TF: 5M 15M 30M 1H 4H D W M)\n"
         "`/chart KODE [TF]` — Chart candlestick + indikator\n"
+        "`/vp KODE [TF]` — Chart + Volume Profile (POC/VAH/VAL) 📊\n"
         "`/tp KODE [TF]` — TP/SL + R/R Ratio\n\n"
         "*🏆 Screener:*\n"
         "`/screener` — IDX screener\n"
@@ -3648,6 +4040,62 @@ async def pivot_auto_scan(context):
             log.error(f"pivot auto uid {uid}: {e}")
 
 
+async def vp_cmd(u, c):
+    """
+    /vp KODE [TF] — Chart + Volume Profile horizontal (seperti TradingView)
+    Contoh: /vp RAJA D   /vp SNDK 1H   /vp BBCA W
+    """
+    args = c.args
+    if not args:
+        await u.message.reply_text(
+            "📊 Format: `/vp KODE [TF]`\nContoh: `/vp RAJA D` atau `/vp SNDK 1H`",
+            parse_mode="Markdown")
+        return
+    code = args[0].upper().replace(".JK", "")
+    tf   = args[1].upper() if len(args) > 1 else "D"
+    m    = await u.message.reply_text(
+        f"📊 Membuat chart + Volume Profile *{code}* TF:{tf}...",
+        parse_mode="Markdown")
+    buf, err = generate_chart_vp(code, tf)
+    if err:
+        await m.edit_text(f"❌ {err}"); return
+    await m.delete()
+    r = get_signal(code, tf)
+    is_idr    = r.get("ticker","").endswith(".JK")
+    price_str = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+    price_fmt = lambda p: f"Rp {p:,.0f}" if is_idr else f"${p:,.2f}"
+    ts = calculate_tp_sl(r)
+
+    # Hitung VP info untuk caption
+    try:
+        n_   = min(len(r["df"]), 80)
+        df_  = r["df"].iloc[-n_:]
+        hi_  = df_["High"].squeeze().values
+        lo_  = df_["Low"].squeeze().values
+        cl_  = df_["Close"].squeeze().values
+        vl_  = df_["Volume"].squeeze().values
+        _, _, poc, val, vah = compute_volume_profile(hi_, lo_, cl_, vl_, n_bins=30)
+        vp_line = (f"\n📊 *Volume Profile:*\n"
+                   f"  POC:`{price_fmt(poc)}` VAH:`{price_fmt(vah)}` VAL:`{price_fmt(val)}`")
+    except:
+        vp_line = ""
+
+    sig_txt = r['sigs'][0].split('-')[0].strip() if r.get('sigs') else 'No Signal'
+    caption = (
+        f"*{r['ticker']}* | TF:`{tf}` | `{price_str}` `{r['chg']:+.2f}%`\n"
+        f"{r['trend']} | Score:`{r['score']}/8` | {sig_txt}\n"
+        f"EMA9:`{r['e9']:,.2f}` MA20:`{r['e20']:,.2f}` MA50:`{r['e50']:,.2f}`\n"
+        f"RSI:`{r['rsi']:.1f}` MACD:`{r['macd']:.1f}` STOCH:`{r['stoch']:.1f}`"
+        f"{vp_line}\n"
+        f"TP1:`{ts['tp1_str']}`({ts['tp1_pct']:+.1f}%) "
+        f"TP2:`{ts['tp2_str']}`({ts['tp2_pct']:+.1f}%) "
+        f"TP3:`{ts['tp3_str']}`({ts['tp3_pct']:+.1f}%)\n"
+        f"SL1:`{ts['sl1_str']}`({ts['sl1_pct']:+.1f}%) "
+        f"R/R:`{ts['rr']}x` | {fmt_now()}"
+    )
+    await u.message.reply_photo(photo=buf, caption=caption, parse_mode="Markdown")
+
+
 def run_bot():
     if not TOKEN: log.warning("TELEGRAM_TOKEN not set"); return
     tg=Application.builder().token(TOKEN).build()
@@ -3659,6 +4107,7 @@ def run_bot():
           ("doji",doji_cmd),("volmom",volmom_cmd),
           ("firstgreen",firstgreen_cmd),
           ("pivot",pivot_cmd),
+          ("vp",vp_cmd),
           ("mdp",mdp_cmd),
           ("pattern",pattern_cmd),
           ("auto",auto_cmd),
