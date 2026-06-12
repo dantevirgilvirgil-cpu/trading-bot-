@@ -1885,8 +1885,9 @@ def fmt_now(): return datetime.now(WIB).strftime("%d-%b-%Y %H:%M")+" WIB"
 def calculate_tp_sl(r):
     """
     Hitung TP1/TP2/TP3 dan SL1/SL2/SL3 otomatis dari data sinyal.
-    Basis: EMA levels, ATR-approx, support/resistance dinamis.
-    Returns dict dengan tp1..tp3, sl1..sl3, rr (risk/reward).
+    - SL berbasis struktur harga (swing low, EMA support) bukan fixed %
+    - TP berbasis risk (SL1) sehingga R/R = dinamis per saham
+    - R/R dihitung dari TP3 vs SL1
     """
     price  = r["price"]
     e9     = r["e9"]
@@ -1894,52 +1895,65 @@ def calculate_tp_sl(r):
     e50    = r["e50"]
     is_idr = r["ticker"].endswith(".JK")
 
-    # ── ATR approx: pakai range harga 20 candle terakhir dari df
+    # ATR sejati: True Range 14 candle terakhir
     try:
-        df  = r["df"]
-        hi  = df["High"].squeeze().tail(20)
-        lo  = df["Low"].squeeze().tail(20)
-        atr = float((hi - lo).mean())
+        df   = r["df"]
+        hi14 = df["High"].squeeze().tail(14).values.astype(float)
+        lo14 = df["Low"].squeeze().tail(14).values.astype(float)
+        cl14 = df["Close"].squeeze().tail(14).values.astype(float)
+        tr_list = []
+        for i in range(1, len(hi14)):
+            tr_list.append(max(
+                hi14[i] - lo14[i],
+                abs(hi14[i] - cl14[i-1]),
+                abs(lo14[i] - cl14[i-1])
+            ))
+        atr = float(np.mean(tr_list)) if tr_list else price * 0.03
     except:
-        atr = price * 0.03   # fallback 3% kalau df tidak tersedia
+        atr = price * 0.03
 
-    # ── Target Price (TP) ──
-    # TP1: EMA9 + 1 ATR  (target cepat)
-    # TP2: EMA9 + 2 ATR  (swing normal)
-    # TP3: EMA9 + 3.5 ATR (extended target)
-    tp1 = price + (1.0 * atr)
-    tp2 = price + (2.0 * atr)
-    tp3 = price + (3.5 * atr)
+    # Swing Low terdekat (10 candle terakhir) untuk SL1
+    try:
+        lo10      = df["Low"].squeeze().tail(10).values.astype(float)
+        swing_low = float(np.min(lo10))
+    except:
+        swing_low = price - atr
 
-    # Kalau harga sudah di atas TP1 (misal sudah naik duluan),
-    # shift TP berbasis % relatif supaya tetap masuk akal
-    if tp1 <= price * 1.005:
-        tp1 = price * 1.04
-        tp2 = price * 1.09
-        tp3 = price * 1.16
+    # SL berbasis struktur harga
+    # SL1: tepat di bawah swing low 10 candle (buffer 0.5%)
+    # SL2: di bawah MA20
+    # SL3: di bawah MA50
+    sl1_raw = swing_low * 0.995
+    sl2_raw = e20       * 0.990
+    sl3_raw = e50       * 0.985
 
-    # ── Stop Loss (SL) — berbasis ATR lebih ketat ──
-    # SL1: 1x ATR di bawah harga (tight stop)
-    # SL2: 1.5x ATR di bawah harga (normal stop)
-    # SL3: Di bawah MA50 atau 2.5x ATR (max stop)
-    sl1 = price - (1.0 * atr)
-    sl2 = price - (1.5 * atr)
-    sl3 = min(e50 * 0.97, price - (2.5 * atr))
+    # Batas maksimum penurunan
+    sl1 = max(sl1_raw, price * 0.85)
+    sl2 = max(sl2_raw, price * 0.78)
+    sl3 = max(sl3_raw, price * 0.70)
 
-    # Pastikan SL tidak terbalik dan tidak terlalu dalam (max -15%)
-    sl1 = max(sl1, price * 0.85)
-    sl2 = max(sl2, price * 0.82)
-    sl3 = max(sl3, price * 0.78)
+    # sl1 wajib di bawah harga, urutan sl1 > sl2 > sl3
+    sl1 = min(sl1, price * 0.995)
+    sl2 = min(sl2, sl1  * 0.985)
+    sl3 = min(sl3, sl2  * 0.985)
 
-    # Pastikan urutan sl1 > sl2 > sl3
-    sl1 = min(sl1, price * 0.97)
-    sl2 = min(sl2, sl1  * 0.97)
-    sl3 = min(sl3, sl2  * 0.97)
+    # Risk dari SL1 (minimal 0.5 ATR)
+    risk = max(price - sl1, atr * 0.5)
 
-    # ── Risk/Reward Ratio (vs SL1) ──
-    risk   = price - sl1
-    reward = tp3   - price      # TP3 untuk target 1:3+
-    rr     = round(reward / risk, 2) if risk > 0 else 0
+    # TP berbasis risk (bukan ATR flat)
+    # TP1=1x, TP2=2x, TP3=3x risk → R/R target 1:3
+    tp1 = price + (1.0 * risk)
+    tp2 = price + (2.0 * risk)
+    tp3 = price + (3.0 * risk)
+
+    # Koreksi minimal
+    tp1 = max(tp1, e9  * 1.005)
+    tp2 = max(tp2, tp1 * 1.02)
+    tp3 = max(tp3, tp2 * 1.02)
+
+    # R/R dinamis
+    reward = tp3 - price
+    rr     = round(reward / risk, 1) if risk > 0 else 0.0
 
     def fmt_p(v):
         return f"Rp {v:,.0f}" if is_idr else f"${v:,.2f}"
@@ -1958,6 +1972,7 @@ def calculate_tp_sl(r):
         "sl2_pct": (sl2-price)/price*100,
         "sl3_pct": (sl3-price)/price*100,
     }
+
 
 def fmt_tp_sl_block(ts, is_idr=True):
     """Format blok TP/SL untuk pesan Telegram"""
