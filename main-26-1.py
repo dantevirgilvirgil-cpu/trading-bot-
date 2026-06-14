@@ -1935,12 +1935,20 @@ def calculate_tp_sl(r):
     is_uptrend   = (price > e9 > e20)
     is_downtrend = (price < e20 and e20 < e50)
 
+    # Deteksi pullback dalam uptrend jangka panjang:
+    # Harga sementara di bawah EMA9/MA20, tapi masih dekat MA50 (< 15% di bawah)
+    # dan MA50 masih dalam posisi bullish (tidak jauh di atas harga)
+    is_pullback  = (not is_uptrend and price >= e50 * 0.85 and e50 <= price * 1.30)
+
     # ── Cap TP berdasarkan trend ──
-    # Uptrend   : max +35%
-    # Downtrend : max = MA20 × 0.97 (resistance), hard cap +20%
-    # Sideways  : max +20%
+    # Uptrend        : max +35% (swing high boleh dipakai)
+    # Pullback       : max +25% (ada ruang recovery ke EMA sebelumnya)
+    # Downtrend sejati: max = MA20 × 0.97, hard cap +20%
+    # Sideways       : max +20%
     if is_uptrend:
         tp_max = price * 1.35
+    elif is_pullback:
+        tp_max = price * 1.25
     elif is_downtrend:
         tp_max = min(e20 * 0.97, price * 1.20)
     else:
