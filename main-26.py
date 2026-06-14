@@ -1931,25 +1931,42 @@ def calculate_tp_sl(r):
 
     risk = max(price - sl1, atr * 0.5)   # risk minimal 0.5 ATR
 
-    # ── TP berbasis target harga nyata ──
-    # TP1: EMA9 jika di atas harga, atau harga + 1 ATR
-    # TP2: EMA20 jika di atas harga, atau swing_high * 0.95
-    # TP3: swing_high (target penuh) atau Fib 61.8% dari swing range
-    fib_range = swing_high - swing_low
-    fib_618   = swing_low + 0.618 * fib_range   # Fib 61.8% retracement target
+    # ── Deteksi trend dari EMA stack ──
+    is_uptrend   = (price > e9 > e20)
+    is_downtrend = (price < e20 and e20 < e50)
 
-    tp1_candidates = [e9, price + 1.0 * atr]
-    tp1 = max(c for c in tp1_candidates if c > price) if any(c > price for c in tp1_candidates) else price + atr
+    # ── Cap TP berdasarkan trend ──
+    # Uptrend   : max +35%
+    # Downtrend : max = MA20 × 0.97 (resistance), hard cap +20%
+    # Sideways  : max +20%
+    if is_uptrend:
+        tp_max = price * 1.35
+    elif is_downtrend:
+        tp_max = min(e20 * 0.97, price * 1.20)
+    else:
+        tp_max = price * 1.20
 
-    tp2_candidates = [e20, fib_618 * 0.90, price + 1.5 * atr]
-    tp2 = max(c for c in tp2_candidates if c > tp1) if any(c > tp1 for c in tp2_candidates) else tp1 * 1.03
+    # Swing high dibatasi tp_max supaya tidak pakai puncak historis
+    swing_high_capped = min(swing_high, tp_max)
+    fib_range = swing_high_capped - swing_low
+    fib_618   = swing_low + 0.618 * fib_range
 
-    tp3_candidates = [swing_high * 0.98, fib_618, price + 2.5 * atr]
-    tp3 = max(c for c in tp3_candidates if c > tp2) if any(c > tp2 for c in tp3_candidates) else tp2 * 1.03
+    # TP1: EMA9 atau +1 ATR, dibatasi tp_max
+    tp1_c = [e9, price + 1.0 * atr]
+    tp1 = max(c for c in tp1_c if price < c <= tp_max) if any(price < c <= tp_max for c in tp1_c) else min(price + atr, tp_max)
 
-    # Pastikan urutan tp1 < tp2 < tp3
-    tp1 = min(tp1, tp2 * 0.99)
+    # TP2: EMA20 atau Fib, dibatasi tp_max
+    tp2_c = [e20, fib_618 * 0.90, price + 1.5 * atr]
+    tp2 = max(c for c in tp2_c if tp1 < c <= tp_max) if any(tp1 < c <= tp_max for c in tp2_c) else min(tp1 * 1.03, tp_max)
+
+    # TP3: swing high capped atau Fib 61.8%, hard cap tp_max
+    tp3_c = [swing_high_capped * 0.98, fib_618, price + 2.5 * atr]
+    tp3 = max(c for c in tp3_c if tp2 < c <= tp_max) if any(tp2 < c <= tp_max for c in tp3_c) else min(tp2 * 1.03, tp_max)
+
+    # Pastikan urutan dan cap
+    tp3 = min(tp3, tp_max)
     tp2 = min(tp2, tp3 * 0.99)
+    tp1 = min(tp1, tp2 * 0.99)
 
     # ── R/R dinamis ──
     reward = tp3 - price
