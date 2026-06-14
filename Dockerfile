@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "main-36-v2-1-3.py"]
+CMD ["python", "main-26.py"]
