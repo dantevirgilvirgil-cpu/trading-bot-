@@ -91,6 +91,8 @@ US_STOCKS=[
     "PLTR","SNOW","DDOG","DATADOG","ZM","DOCN","CFLT","MDB","ESTC",
     "SHOP","MELI","SE","GRAB","BABA","JD","PDD","NIO","LI","XPEV",
     "RKLB","SPCE","LUNR","ACHR","JOBY",
+    # ══ IPO BARU & TRENDING ══
+    "SPCX","ALAB","NOK",
     # ══ QUANTUM & AI PLAY ══
     "IONQ","QUBT","RGTI","QBTS","ARQQ","QTUM",
     "SMCI","HPE","DELL","NTAP","PSTG",
@@ -3898,13 +3900,26 @@ def pivot_touch_scan_one(code, tf="D"):
 
         result = None
 
-        # ── Cek Lower TL (panah ijo) ── harga dekat pivot low
+        # ── Cek Lower TL (panah ijo) ── harga dekat ATAU baru break dari pivot low
         if "lower" in tl:
             lo = tl["lower"]
-            # Nilai lower TL di candle terakhir
-            tl_val = lo["slope"] * (min(len(highs), 30) - 1) + lo["intercept"]
-            # Harga dalam 2% dari lower TL = touch
-            if tl_val > 0 and abs(price - tl_val) / tl_val < 0.025:
+            n_bars = min(len(highs), 30)
+            tl_val = lo["slope"] * (n_bars - 1) + lo["intercept"]
+            # Hitung juga TL value 3 candle lalu (untuk deteksi baru break)
+            tl_val_prev = lo["slope"] * (n_bars - 4) + lo["intercept"]
+            prev_close  = float(closes[-4]) if len(closes) >= 4 else price
+
+            # Kondisi 1: Harga mepet lower TL (dalam 5%) — touch klasik
+            touching = tl_val > 0 and abs(price - tl_val) / tl_val < 0.05
+            # Kondisi 2: Baru break ke atas lower TL (sebelumnya di bawah/mepet, sekarang naik)
+            breakout = (tl_val > 0 and tl_val_prev > 0
+                        and prev_close <= tl_val_prev * 1.02   # sebelumnya di bawah TL
+                        and price > tl_val * 1.00              # sekarang di atas TL
+                        and price <= tl_val * 1.15             # tapi belum terlalu jauh (max +15%)
+                        and r["chg"] > 1.0)                    # ada kenaikan signifikan hari ini
+
+            if tl_val > 0 and (touching or breakout):
+                touch_type = "lower_break" if breakout else "lower"
                 result = {
                     "code":    code.upper(),
                     "ticker":  r["ticker"],
@@ -3914,6 +3929,7 @@ def pivot_touch_scan_one(code, tf="D"):
                     "score":   r["score"],
                     "signal":  r["sigs"][0].split("-")[0].strip() if r["sigs"] else "No Signal",
                     "touch":   "lower",   # panah ijo
+                    "touch_type": touch_type,
                     "tl_val":  round(tl_val, 0),
                     "rsi":     r.get("rsi", 50),
                 }
@@ -4042,13 +4058,22 @@ async def pivot_cmd(u, c):
 
 
 async def pivot_auto_scan(context):
-    """Auto scan pivot touch tiap 30 menit saat market buka."""
+    """Auto scan pivot touch tiap 30 menit saat market buka — IDX + US."""
     if not is_idx_trading_day(): return
     if not auto_users: return
     if not (is_idx_market_open() or is_us_market_open()): return
 
-    lower_res, upper_res = pivot_scan_multi_tf(IDX_STOCKS)
-    if not lower_res: return  # hanya alert kalau ada panah ijo
+    # Scan IDX kalau IDX buka, US kalau US buka
+    stocks_to_scan = []
+    if is_idx_market_open():
+        stocks_to_scan += IDX_STOCKS
+    if is_us_market_open():
+        stocks_to_scan += US_STOCKS[:40]   # batasi 40 US stocks supaya tidak berat
+
+    if not stocks_to_scan: return
+
+    lower_res, upper_res = pivot_scan_multi_tf(stocks_to_scan)
+    if not lower_res: return
 
     now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
     lines = [
@@ -4057,13 +4082,18 @@ async def pivot_auto_scan(context):
         "━━━━━━━━━━━━━━━━━━━━",
     ]
     for r in lower_res[:8]:
-        px  = f"Rp {r['price']:,.0f}"
-        chg = f"{r['chg']:+.1f}%"
+        ticker = r.get("ticker", r["code"])
+        is_idr_stock = ticker.endswith(".JK")
+        px   = f"Rp {r['price']:,.0f}" if is_idr_stock else f"${r['price']:,.2f}"
+        chg  = f"{r['chg']:+.1f}%"
+        icon = "🚀" if r.get("touch_type") == "lower_break" else "✅"
+        tag  = " BREAK!" if r.get("touch_type") == "lower_break" else ""
         lines.append(
-            f"✅ *{r['code']}* TF:`{r['tf']}` `{px}` {chg} "
+            f"{icon} *{r['code']}* TF:`{r['tf']}` `{px}` {chg}{tag} "
             f"| Score:`{r['score']}/8` | RSI:`{r['rsi']:.0f}`"
         )
-    lines += ["━━━━━━━━━━━━━━━━━━━━", "💡 Harga di Lower TL — potensi bounce!"]
+    lines += ["━━━━━━━━━━━━━━━━━━━━",
+              "✅ = Harga mepet Lower TL (bounce) | 🚀 = Baru break dari Lower TL!"]
 
     bot = context.bot
     for uid in auto_users:
@@ -4073,8 +4103,11 @@ async def pivot_auto_scan(context):
                 best = lower_res[0]
                 buf, _ = generate_chart(best["code"], best["tf"])
                 if buf:
+                    ticker_b = best.get("ticker", best["code"])
+                    is_idr_b = ticker_b.endswith(".JK")
+                    px_b = f"Rp {best['price']:,.0f}" if is_idr_b else f"${best['price']:,.2f}"
                     await bot.send_photo(int(uid), photo=buf,
-                        caption=f"🟢 PANAH IJO: {best['code']} TF:{best['tf']} | {now_str}")
+                        caption=f"🟢 PANAH IJO: {best['code']} TF:{best['tf']} | {px_b} | {now_str}")
         except Exception as e:
             log.error(f"pivot auto uid {uid}: {e}")
 
