@@ -3898,169 +3898,223 @@ async def mdp_auto_scan(context):
 
 
 # ══════════════════════════════════════════════════════════════
-# SCREENER TABLE IMAGE GENERATOR (HTML → PNG via html2image)
+# ══════════════════════════════════════════════════════════════
+# SCREENER TABLE IMAGE GENERATOR (pure matplotlib — no Chromium)
 # ══════════════════════════════════════════════════════════════
 
 def generate_screener_image(lower_res, upper_res, title="PIVOT ARROW SCREENER", market="IDX"):
     """
-    Generate PNG image dari screener results (panah ijo/kuning) pakai html2image.
+    Generate PNG tabel warna-warni pakai matplotlib.
+    Zero dependency tambahan — works di Railway slim image.
     Return: BytesIO buffer atau None kalau gagal.
     """
     try:
-        from html2image import Html2Image
-        import tempfile, os
+        import matplotlib.patches as mpatches
 
-        now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
-        flag = "🇮🇩" if market == "IDX" else "🇺🇸"
+        BG       = "#0d0f14"
+        SURFACE  = "#13161e"
+        SURFACE2 = "#0f1219"
+        BORDER   = "#1f2433"
+        GREEN    = "#00e676"
+        RED      = "#ff3d57"
+        YELLOW   = "#ffd740"
+        CYAN     = "#00bcd4"
+        PURPLE   = "#b39ddb"
+        ORANGE   = "#ff9800"
+        DIM      = "#4a5568"
+        TEXT     = "#e2e8f0"
+        SUBTEXT  = "#718096"
 
         def score_color(s):
-            if s >= 7: return "#00e676"
-            if s >= 6: return "#ffd740"
-            if s >= 5: return "#ff9800"
-            return "#ff3d57"
+            if s >= 7: return GREEN
+            if s >= 6: return YELLOW
+            if s >= 5: return ORANGE
+            return RED
 
         def rsi_color(r):
-            if r >= 70: return "#ff3d57"
-            if r >= 55: return "#ffd740"
-            return "#00bcd4"
+            if r >= 70: return RED
+            if r >= 55: return YELLOW
+            return CYAN
 
         def chg_color(c):
-            if c > 0: return "#00e676"
-            if c < 0: return "#ff3d57"
-            return "#718096"
+            if c > 0: return GREEN
+            if c < 0: return RED
+            return SUBTEXT
 
-        def score_dots(s, max_s=8):
-            col = score_color(s)
-            dots = ""
+        def badge_color(t):
+            if t == "lower_break": return (YELLOW, "#1a1500")
+            if t == "upper":       return (PURPLE, "#1a0a25")
+            return (GREEN, "#0a2a1a")
+
+        n_lower = len(lower_res[:12])
+        n_upper = len(upper_res[:8])
+        n_rows  = n_lower + n_upper
+        if n_rows == 0:
+            return None
+
+        row_h  = 0.38
+        hdr_h  = 0.70
+        sec_h  = 0.30
+        n_secs = (1 if n_lower > 0 else 0) + (1 if n_upper > 0 else 0)
+        total_h = hdr_h + n_secs * sec_h + n_rows * row_h + 0.5
+        fig_w   = 9.0
+
+        fig, ax = plt.subplots(figsize=(fig_w, total_h))
+        fig.patch.set_facecolor(BG)
+        ax.set_facecolor(BG)
+        ax.set_xlim(0, fig_w)
+        ax.set_ylim(0, total_h)
+        ax.axis("off")
+
+        now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+        flag    = "IDX" if market == "IDX" else "US"
+
+        # HEADER
+        y = total_h - 0.08
+        ax.add_patch(plt.Circle((0.18, y - 0.12), 0.07, color=GREEN, zorder=3))
+        ax.text(0.32, y - 0.06, "IDX QUANT  DANTEBADAI BOT",
+                color=GREEN, fontsize=9, fontweight="bold", va="top", ha="left", fontfamily="monospace")
+        ax.text(0.32, y - 0.26, f"{flag}  {title}",
+                color=SUBTEXT, fontsize=7.5, va="top", ha="left")
+        ax.text(fig_w - 0.15, y - 0.06, now_str,
+                color=CYAN, fontsize=7.5, va="top", ha="right", fontfamily="monospace")
+        ax.plot([0.1, fig_w - 0.1], [total_h - hdr_h + 0.05, total_h - hdr_h + 0.05],
+                color=BORDER, linewidth=0.8)
+
+        COLS = [
+            ("#",       0.20, "center"),
+            ("SAHAM",   0.75, "left"),
+            ("HARGA",   2.55, "right"),
+            ("CHG",     3.45, "right"),
+            ("SCORE",   4.65, "right"),
+            ("RSI",     5.55, "right"),
+            ("TL DIST", 6.30, "right"),
+            ("TYPE",    7.20, "center"),
+            ("SIGNAL",  8.40, "right"),
+        ]
+
+        def draw_col_headers(y_top):
+            for lbl, x, align in COLS:
+                ax.text(x, y_top, lbl, color=SUBTEXT, fontsize=6.5,
+                        fontweight="bold", va="top", ha=align, fontfamily="monospace")
+            ax.plot([0.1, fig_w - 0.1], [y_top - 0.18, y_top - 0.18],
+                    color=BORDER, linewidth=0.6)
+
+        def draw_section_label(y_top, label, color):
+            ax.text(0.15, y_top, label, color=color, fontsize=8,
+                    fontweight="bold", va="top", ha="left")
+            ax.plot([0.1, fig_w - 0.1], [y_top - 0.20, y_top - 0.20],
+                    color=BORDER, linewidth=0.4, linestyle="--")
+
+        def draw_score_dots(x_end, y_mid, score, max_s=8):
+            col   = score_color(score)
+            dot_w = 0.085
+            gap   = 0.025
+            total_w = max_s * dot_w + (max_s - 1) * gap
+            x0 = x_end - total_w
             for i in range(max_s):
-                bg = col if i < s else "#1f2433"
-                dots += f'<span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:{bg};margin-right:2px;vertical-align:middle"></span>'
-            return dots + f'<span style="color:{col};font-size:11px;vertical-align:middle;margin-left:3px">{s}/8</span>'
+                xi = x0 + i * (dot_w + gap)
+                fc = col if i < score else BORDER
+                ax.add_patch(mpatches.FancyBboxPatch(
+                    (xi, y_mid - 0.055), dot_w, 0.11,
+                    boxstyle="round,pad=0.01", facecolor=fc, edgecolor="none"))
+            ax.text(x_end + 0.05, y_mid, f"{score}/8",
+                    color=col, fontsize=6.5, va="center", ha="left", fontfamily="monospace")
 
-        def badge(touch_type):
-            if touch_type == "lower_break":
-                return '<span style="background:#1a1500;color:#ffd740;border:1px solid #3a3000;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">BREAK🚀</span>'
-            if touch_type == "upper":
-                return '<span style="background:#1a0a25;color:#b39ddb;border:1px solid #3a1a55;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">UPPER</span>'
-            return '<span style="background:#0a2a1a;color:#00e676;border:1px solid #1a4a2a;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">TOUCH✅</span>'
+        def draw_badge(x_cen, y_mid, touch_type):
+            fg, bg = badge_color(touch_type)
+            label  = "BREAK" if touch_type == "lower_break" else \
+                     "UPPER" if touch_type == "upper"       else "TOUCH"
+            ax.add_patch(mpatches.FancyBboxPatch(
+                (x_cen - 0.38, y_mid - 0.10), 0.76, 0.20,
+                boxstyle="round,pad=0.02", facecolor=bg, edgecolor=fg, linewidth=0.5))
+            ax.text(x_cen, y_mid, label, color=fg, fontsize=6,
+                    fontweight="bold", va="center", ha="center")
 
-        def build_rows(data, is_idr_market):
-            rows = ""
-            for i, r in enumerate(data):
-                is_idr = r.get("ticker","").endswith(".JK")
-                px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
-                chg = r.get("chg", 0)
+        y_cur = total_h - hdr_h
+
+        sections = []
+        if n_lower > 0:
+            sections.append((">> PANAH IJO  Lower TL Touch", GREEN,
+                              [("lower", r) for r in lower_res[:12]]))
+        if n_upper > 0:
+            sections.append((">> PANAH KUNING  Upper TL", YELLOW,
+                              [("upper", r) for r in upper_res[:8]]))
+
+        for sec_label, sec_color, sec_rows in sections:
+            draw_section_label(y_cur, sec_label, sec_color)
+            y_cur -= sec_h
+            draw_col_headers(y_cur)
+            y_cur -= 0.22
+
+            for idx, (rtype, r) in enumerate(sec_rows):
+                row_bg = SURFACE if idx % 2 == 0 else SURFACE2
+                ax.add_patch(mpatches.Rectangle(
+                    (0.05, y_cur - row_h + 0.04), fig_w - 0.10, row_h - 0.04,
+                    facecolor=row_bg, edgecolor="none"))
+
+                y_mid = y_cur - row_h / 2 + 0.04
+
+                is_idr  = r.get("ticker", "").endswith(".JK")
+                price   = r.get("price", 0)
+                px_str  = f"Rp {price:,.0f}" if is_idr else f"${price:,.2f}"
+                chg     = r.get("chg", 0)
                 chg_str = f"+{chg:.1f}%" if chg > 0 else f"{chg:.1f}%"
-                rsi = r.get("rsi", 50)
-                sc  = r.get("score", 0)
-                dist = r.get("pct_diff", 0)
-                touch_type = r.get("touch_type", r.get("touch", "lower"))
-                signal = r.get("signal", "")[:12]
-                tf = r.get("tf","D")
-                bg = "#13161e" if i % 2 == 0 else "#0f1219"
-                rows += f"""
-                <tr style="background:{bg};border-bottom:1px solid #1a1d26">
-                  <td style="text-align:center;color:#4a5568;font-size:11px;padding:7px 6px">{i+1}</td>
-                  <td style="padding:7px 6px">
-                    <span style="font-weight:700;font-size:13px;color:#e2e8f0">{r['code']}</span>
-                    <span style="background:#1f2433;color:#718096;font-size:9px;padding:1px 4px;border-radius:3px;margin-left:4px">{tf}</span>
-                  </td>
-                  <td style="text-align:right;padding:7px 6px;color:#cbd5e0;font-weight:600">{px}</td>
-                  <td style="text-align:right;padding:7px 6px;color:{chg_color(chg)};font-weight:600">{chg_str}</td>
-                  <td style="text-align:right;padding:7px 6px">{score_dots(sc)}</td>
-                  <td style="text-align:right;padding:7px 6px;color:{rsi_color(rsi)}">{rsi:.0f}</td>
-                  <td style="text-align:right;padding:7px 6px;color:#ff9800;font-size:11px">{dist:.1f}%</td>
-                  <td style="text-align:right;padding:7px 6px">{badge(touch_type)}</td>
-                  <td style="text-align:right;padding:7px 6px;color:#00bcd4;font-size:10px">{signal}</td>
-                </tr>"""
-            return rows
+                rsi     = r.get("rsi", 50)
+                sc      = r.get("score", 0)
+                dist    = r.get("pct_diff", 0)
+                ttype   = r.get("touch_type", rtype)
+                signal  = r.get("signal", "")[:10]
+                tf      = r.get("tf", "D")
 
-        def build_table(data, section_title, section_color, is_idr_market):
-            if not data: return ""
-            th_style = "padding:5px 6px;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#4a5568;border-bottom:1px solid #1f2433;text-align:right"
-            return f"""
-            <div style="margin-bottom:14px">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                <span style="color:{section_color};font-size:12px;font-weight:700;letter-spacing:1px">{section_title}</span>
-                <div style="flex:1;height:1px;background:#1f2433"></div>
-                <span style="color:{section_color};font-size:11px">{len(data)} sinyal</span>
-              </div>
-              <table style="width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace">
-                <thead>
-                  <tr>
-                    <th style="{th_style};text-align:center">#</th>
-                    <th style="{th_style};text-align:left">Saham</th>
-                    <th style="{th_style}">Harga</th>
-                    <th style="{th_style}">Chg</th>
-                    <th style="{th_style}">Score</th>
-                    <th style="{th_style}">RSI</th>
-                    <th style="{th_style}">TL Dist</th>
-                    <th style="{th_style}">Type</th>
-                    <th style="{th_style}">Signal</th>
-                  </tr>
-                </thead>
-                <tbody>{build_rows(data, is_idr_market)}</tbody>
-              </table>
-            </div>"""
+                ax.text(COLS[0][1], y_mid, str(idx + 1),
+                        color=DIM, fontsize=7, va="center", ha="center", fontfamily="monospace")
+                ax.text(COLS[1][1], y_mid + 0.04, r["code"],
+                        color=TEXT, fontsize=8.5, fontweight="bold", va="center", ha="left")
+                ax.add_patch(mpatches.FancyBboxPatch(
+                    (COLS[1][1] + 0.55, y_mid - 0.06), 0.34, 0.15,
+                    boxstyle="round,pad=0.01", facecolor=BORDER, edgecolor="none"))
+                ax.text(COLS[1][1] + 0.72, y_mid + 0.015, tf,
+                        color=SUBTEXT, fontsize=5.5, va="center", ha="center", fontfamily="monospace")
+                ax.text(COLS[2][1], y_mid, px_str,
+                        color="#cbd5e0", fontsize=7.5, fontweight="bold",
+                        va="center", ha="right", fontfamily="monospace")
+                ax.text(COLS[3][1], y_mid, chg_str,
+                        color=chg_color(chg), fontsize=7.5, fontweight="bold",
+                        va="center", ha="right", fontfamily="monospace")
+                draw_score_dots(COLS[4][1], y_mid, sc)
+                ax.text(COLS[5][1], y_mid, f"{rsi:.0f}",
+                        color=rsi_color(rsi), fontsize=7.5,
+                        va="center", ha="right", fontfamily="monospace")
+                ax.text(COLS[6][1], y_mid, f"{dist:.1f}%",
+                        color=ORANGE, fontsize=7,
+                        va="center", ha="right", fontfamily="monospace")
+                draw_badge(COLS[7][1], y_mid, ttype)
+                ax.text(COLS[8][1], y_mid, signal,
+                        color=CYAN, fontsize=6.5,
+                        va="center", ha="right", fontfamily="monospace")
+                ax.plot([0.1, fig_w - 0.1],
+                        [y_cur - row_h + 0.05, y_cur - row_h + 0.05],
+                        color=BORDER, linewidth=0.3)
+                y_cur -= row_h
 
-        is_idr_market = (market == "IDX")
-        lower_table = build_table(lower_res[:12], "🟢 PANAH IJO — Lower TL Touch", "#00e676", is_idr_market)
-        upper_table = build_table(upper_res[:8],  "🟡 PANAH KUNING — Upper TL", "#ffd740", is_idr_market)
+            y_cur -= 0.05
 
-        html = f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
-<style>
-  * {{ box-sizing:border-box; margin:0; padding:0; }}
-  body {{ background:#0d0f14; color:#e2e8f0; font-family:'Inter',sans-serif;
-          font-size:13px; padding:16px; width:700px; }}
-</style>
-</head>
-<body>
-  <!-- HEADER -->
-  <div style="display:flex;align-items:center;justify-content:space-between;
-              border-bottom:1px solid #1f2433;padding-bottom:10px;margin-bottom:12px">
-    <div style="display:flex;align-items:center;gap:10px">
-      <div style="width:9px;height:9px;border-radius:50%;background:#00e676;
-                  box-shadow:0 0 8px #00e676"></div>
-      <div>
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;
-                    color:#00e676;letter-spacing:1px">IDX QUANT · DANTEBADAI BOT</div>
-        <div style="font-size:11px;color:#718096">{flag} {title}</div>
-      </div>
-    </div>
-    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#00bcd4">{now_str}</div>
-  </div>
+        # FOOTER
+        ax.plot([0.1, fig_w - 0.1], [0.32, 0.32], color=BORDER, linewidth=0.6)
+        ax.text(0.15, 0.24,
+                "TOUCH=mepet Lower TL  |  BREAK=break Lower TL  |  UPPER=mepet Upper TL",
+                color=DIM, fontsize=6, va="top", ha="left")
+        ax.text(fig_w - 0.15, 0.24, "Dantebadai Bot v2",
+                color=DIM, fontsize=6, va="top", ha="right")
 
-  {lower_table}
-  {upper_table}
-
-  <!-- FOOTER -->
-  <div style="margin-top:10px;padding-top:8px;border-top:1px solid #1f2433;
-              display:flex;justify-content:space-between;font-size:10px;color:#4a5568">
-    <div style="display:flex;gap:14px">
-      <span><span style="background:#0a2a1a;color:#00e676;border:1px solid #1a4a2a;padding:1px 5px;border-radius:3px;font-size:9px">TOUCH</span> Mepet Lower TL</span>
-      <span><span style="background:#1a1500;color:#ffd740;border:1px solid #3a3000;padding:1px 5px;border-radius:3px;font-size:9px">BREAK</span> Break dari Lower TL</span>
-      <span><span style="background:#1a0a25;color:#b39ddb;border:1px solid #3a1a55;padding:1px 5px;border-radius:3px;font-size:9px">UPPER</span> Mepet Upper TL</span>
-    </div>
-    <span>Dantebadai Bot v2</span>
-  </div>
-</body>
-</html>"""
-
-        # Render HTML → PNG
-        with tempfile.TemporaryDirectory() as tmpdir:
-            hti = Html2Image(output_path=tmpdir, custom_flags=["--no-sandbox","--disable-gpu"])
-            hti.screenshot(html_str=html, save_as="screener.png", size=(700, 1000))
-            png_path = os.path.join(tmpdir, "screener.png")
-            if not os.path.exists(png_path):
-                return None
-            with open(png_path, "rb") as f:
-                buf = io.BytesIO(f.read())
-            buf.seek(0)
-            return buf
+        plt.tight_layout(pad=0)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+                    facecolor=BG, edgecolor="none")
+        plt.close(fig)
+        buf.seek(0)
+        return buf
 
     except Exception as e:
         log.error(f"generate_screener_image error: {e}")
