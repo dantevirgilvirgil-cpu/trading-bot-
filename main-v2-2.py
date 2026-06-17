@@ -573,85 +573,39 @@ def fmt_doji_msg(results_by_tf, market_name="IDX"):
 def detect_trendlines(highs, lows, n=30):
     """
     Deteksi upper & lower trendline dari pivot high/low.
-    ✅ FIX v2: Multi-window pivot detection (3 & 5 bar), filter outlier,
-               fallback ke simple high/low kalau pivot kurang.
+    Return dict dengan slope, intercept, dan titik-titik garis.
     """
     from scipy import stats as sp_stats
 
     # Ambil n candle terakhir
     h = highs[-n:]
     l = lows[-n:]
+    x = np.arange(len(h))
 
-    def find_pivots_low(arr, win=2):
-        """Local minima dengan window win kiri+kanan"""
-        idx = []
-        for i in range(win, len(arr)-win):
-            if all(arr[i] <= arr[i-j] for j in range(1, win+1)) and \
-               all(arr[i] <= arr[i+j] for j in range(1, win+1)):
-                idx.append(i)
-        return idx
-
-    def find_pivots_high(arr, win=2):
-        """Local maxima dengan window win kiri+kanan"""
-        idx = []
-        for i in range(win, len(arr)-win):
-            if all(arr[i] >= arr[i-j] for j in range(1, win+1)) and \
-               all(arr[i] >= arr[i+j] for j in range(1, win+1)):
-                idx.append(i)
-        return idx
-
-    def filter_outlier_pivots(idx_list, vals, pct=0.08):
-        """Hapus pivot yang terlalu jauh dari median (outlier)"""
-        if len(idx_list) < 3:
-            return idx_list
-        v = np.array([vals[i] for i in idx_list])
-        med = np.median(v)
-        return [i for i in idx_list if abs(vals[i] - med) / med < pct]
+    # Pivot High: local maxima (window 3)
+    ph_idx = [i for i in range(1, len(h)-1) if h[i] >= h[i-1] and h[i] >= h[i+1]]
+    # Pivot Low: local minima (window 3)
+    pl_idx = [i for i in range(1, len(l)-1) if l[i] <= l[i-1] and l[i] <= l[i+1]]
 
     result = {}
 
-    # ── Lower Trendline ──
-    # Coba window 2 dulu, kalau kurang pivot coba window 1
-    pl_idx = find_pivots_low(l, win=2)
-    if len(pl_idx) < 2:
-        pl_idx = find_pivots_low(l, win=1)
-    # Fallback: ambil 3 titik terendah kalau masih tidak cukup
-    if len(pl_idx) < 2:
-        sorted_idx = sorted(range(len(l)), key=lambda i: l[i])[:5]
-        pl_idx = sorted(sorted_idx)
-    pl_idx = filter_outlier_pivots(pl_idx, l, pct=0.10)
-    if len(pl_idx) >= 2:
-        px = np.array(pl_idx); py = np.array([l[i] for i in pl_idx])
-        slope, intercept, r_val, _, _ = sp_stats.linregress(px, py)
-        # Hanya pakai kalau regresi cukup fit (r² > 0.3) atau minimal 2 pivot
-        if abs(r_val) >= 0.3 or len(pl_idx) == 2:
-            result["lower"] = {
-                "slope": slope, "intercept": intercept,
-                "x0": 0, "x1": len(l)-1,
-                "y0": intercept, "y1": slope*(len(l)-1)+intercept,
-                "pivot_x": pl_idx, "pivot_y": [l[i] for i in pl_idx],
-                "r_val": abs(r_val)
-            }
-
-    # ── Upper Trendline ──
-    ph_idx = find_pivots_high(h, win=2)
-    if len(ph_idx) < 2:
-        ph_idx = find_pivots_high(h, win=1)
-    if len(ph_idx) < 2:
-        sorted_idx = sorted(range(len(h)), key=lambda i: h[i], reverse=True)[:5]
-        ph_idx = sorted(sorted_idx)
-    ph_idx = filter_outlier_pivots(ph_idx, h, pct=0.10)
+    # Upper trendline (pivot highs)
     if len(ph_idx) >= 2:
         px = np.array(ph_idx); py = np.array([h[i] for i in ph_idx])
-        slope, intercept, r_val, _, _ = sp_stats.linregress(px, py)
-        if abs(r_val) >= 0.3 or len(ph_idx) == 2:
-            result["upper"] = {
-                "slope": slope, "intercept": intercept,
-                "x0": 0, "x1": len(h)-1,
-                "y0": intercept, "y1": slope*(len(h)-1)+intercept,
-                "pivot_x": ph_idx, "pivot_y": [h[i] for i in ph_idx],
-                "r_val": abs(r_val)
-            }
+        slope, intercept, _, _, _ = sp_stats.linregress(px, py)
+        result["upper"] = {"slope": slope, "intercept": intercept,
+                           "x0": 0, "x1": len(h)-1,
+                           "y0": intercept, "y1": slope*(len(h)-1)+intercept,
+                           "pivot_x": ph_idx, "pivot_y": [h[i] for i in ph_idx]}
+
+    # Lower trendline (pivot lows)
+    if len(pl_idx) >= 2:
+        px = np.array(pl_idx); py = np.array([l[i] for i in pl_idx])
+        slope, intercept, _, _, _ = sp_stats.linregress(px, py)
+        result["lower"] = {"slope": slope, "intercept": intercept,
+                           "x0": 0, "x1": len(l)-1,
+                           "y0": intercept, "y1": slope*(len(l)-1)+intercept,
+                           "pivot_x": pl_idx, "pivot_y": [l[i] for i in pl_idx]}
 
     return result
 
@@ -3944,6 +3898,176 @@ async def mdp_auto_scan(context):
 
 
 # ══════════════════════════════════════════════════════════════
+# SCREENER TABLE IMAGE GENERATOR (HTML → PNG via html2image)
+# ══════════════════════════════════════════════════════════════
+
+def generate_screener_image(lower_res, upper_res, title="PIVOT ARROW SCREENER", market="IDX"):
+    """
+    Generate PNG image dari screener results (panah ijo/kuning) pakai html2image.
+    Return: BytesIO buffer atau None kalau gagal.
+    """
+    try:
+        from html2image import Html2Image
+        import tempfile, os
+
+        now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+        flag = "🇮🇩" if market == "IDX" else "🇺🇸"
+
+        def score_color(s):
+            if s >= 7: return "#00e676"
+            if s >= 6: return "#ffd740"
+            if s >= 5: return "#ff9800"
+            return "#ff3d57"
+
+        def rsi_color(r):
+            if r >= 70: return "#ff3d57"
+            if r >= 55: return "#ffd740"
+            return "#00bcd4"
+
+        def chg_color(c):
+            if c > 0: return "#00e676"
+            if c < 0: return "#ff3d57"
+            return "#718096"
+
+        def score_dots(s, max_s=8):
+            col = score_color(s)
+            dots = ""
+            for i in range(max_s):
+                bg = col if i < s else "#1f2433"
+                dots += f'<span style="display:inline-block;width:7px;height:7px;border-radius:2px;background:{bg};margin-right:2px;vertical-align:middle"></span>'
+            return dots + f'<span style="color:{col};font-size:11px;vertical-align:middle;margin-left:3px">{s}/8</span>'
+
+        def badge(touch_type):
+            if touch_type == "lower_break":
+                return '<span style="background:#1a1500;color:#ffd740;border:1px solid #3a3000;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">BREAK🚀</span>'
+            if touch_type == "upper":
+                return '<span style="background:#1a0a25;color:#b39ddb;border:1px solid #3a1a55;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">UPPER</span>'
+            return '<span style="background:#0a2a1a;color:#00e676;border:1px solid #1a4a2a;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:700">TOUCH✅</span>'
+
+        def build_rows(data, is_idr_market):
+            rows = ""
+            for i, r in enumerate(data):
+                is_idr = r.get("ticker","").endswith(".JK")
+                px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+                chg = r.get("chg", 0)
+                chg_str = f"+{chg:.1f}%" if chg > 0 else f"{chg:.1f}%"
+                rsi = r.get("rsi", 50)
+                sc  = r.get("score", 0)
+                dist = r.get("pct_diff", 0)
+                touch_type = r.get("touch_type", r.get("touch", "lower"))
+                signal = r.get("signal", "")[:12]
+                tf = r.get("tf","D")
+                bg = "#13161e" if i % 2 == 0 else "#0f1219"
+                rows += f"""
+                <tr style="background:{bg};border-bottom:1px solid #1a1d26">
+                  <td style="text-align:center;color:#4a5568;font-size:11px;padding:7px 6px">{i+1}</td>
+                  <td style="padding:7px 6px">
+                    <span style="font-weight:700;font-size:13px;color:#e2e8f0">{r['code']}</span>
+                    <span style="background:#1f2433;color:#718096;font-size:9px;padding:1px 4px;border-radius:3px;margin-left:4px">{tf}</span>
+                  </td>
+                  <td style="text-align:right;padding:7px 6px;color:#cbd5e0;font-weight:600">{px}</td>
+                  <td style="text-align:right;padding:7px 6px;color:{chg_color(chg)};font-weight:600">{chg_str}</td>
+                  <td style="text-align:right;padding:7px 6px">{score_dots(sc)}</td>
+                  <td style="text-align:right;padding:7px 6px;color:{rsi_color(rsi)}">{rsi:.0f}</td>
+                  <td style="text-align:right;padding:7px 6px;color:#ff9800;font-size:11px">{dist:.1f}%</td>
+                  <td style="text-align:right;padding:7px 6px">{badge(touch_type)}</td>
+                  <td style="text-align:right;padding:7px 6px;color:#00bcd4;font-size:10px">{signal}</td>
+                </tr>"""
+            return rows
+
+        def build_table(data, section_title, section_color, is_idr_market):
+            if not data: return ""
+            th_style = "padding:5px 6px;font-size:10px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:#4a5568;border-bottom:1px solid #1f2433;text-align:right"
+            return f"""
+            <div style="margin-bottom:14px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <span style="color:{section_color};font-size:12px;font-weight:700;letter-spacing:1px">{section_title}</span>
+                <div style="flex:1;height:1px;background:#1f2433"></div>
+                <span style="color:{section_color};font-size:11px">{len(data)} sinyal</span>
+              </div>
+              <table style="width:100%;border-collapse:collapse;font-family:'IBM Plex Mono',monospace">
+                <thead>
+                  <tr>
+                    <th style="{th_style};text-align:center">#</th>
+                    <th style="{th_style};text-align:left">Saham</th>
+                    <th style="{th_style}">Harga</th>
+                    <th style="{th_style}">Chg</th>
+                    <th style="{th_style}">Score</th>
+                    <th style="{th_style}">RSI</th>
+                    <th style="{th_style}">TL Dist</th>
+                    <th style="{th_style}">Type</th>
+                    <th style="{th_style}">Signal</th>
+                  </tr>
+                </thead>
+                <tbody>{build_rows(data, is_idr_market)}</tbody>
+              </table>
+            </div>"""
+
+        is_idr_market = (market == "IDX")
+        lower_table = build_table(lower_res[:12], "🟢 PANAH IJO — Lower TL Touch", "#00e676", is_idr_market)
+        upper_table = build_table(upper_res[:8],  "🟡 PANAH KUNING — Upper TL", "#ffd740", is_idr_market)
+
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  * {{ box-sizing:border-box; margin:0; padding:0; }}
+  body {{ background:#0d0f14; color:#e2e8f0; font-family:'Inter',sans-serif;
+          font-size:13px; padding:16px; width:700px; }}
+</style>
+</head>
+<body>
+  <!-- HEADER -->
+  <div style="display:flex;align-items:center;justify-content:space-between;
+              border-bottom:1px solid #1f2433;padding-bottom:10px;margin-bottom:12px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:9px;height:9px;border-radius:50%;background:#00e676;
+                  box-shadow:0 0 8px #00e676"></div>
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:700;
+                    color:#00e676;letter-spacing:1px">IDX QUANT · DANTEBADAI BOT</div>
+        <div style="font-size:11px;color:#718096">{flag} {title}</div>
+      </div>
+    </div>
+    <div style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#00bcd4">{now_str}</div>
+  </div>
+
+  {lower_table}
+  {upper_table}
+
+  <!-- FOOTER -->
+  <div style="margin-top:10px;padding-top:8px;border-top:1px solid #1f2433;
+              display:flex;justify-content:space-between;font-size:10px;color:#4a5568">
+    <div style="display:flex;gap:14px">
+      <span><span style="background:#0a2a1a;color:#00e676;border:1px solid #1a4a2a;padding:1px 5px;border-radius:3px;font-size:9px">TOUCH</span> Mepet Lower TL</span>
+      <span><span style="background:#1a1500;color:#ffd740;border:1px solid #3a3000;padding:1px 5px;border-radius:3px;font-size:9px">BREAK</span> Break dari Lower TL</span>
+      <span><span style="background:#1a0a25;color:#b39ddb;border:1px solid #3a1a55;padding:1px 5px;border-radius:3px;font-size:9px">UPPER</span> Mepet Upper TL</span>
+    </div>
+    <span>Dantebadai Bot v2</span>
+  </div>
+</body>
+</html>"""
+
+        # Render HTML → PNG
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hti = Html2Image(output_path=tmpdir, custom_flags=["--no-sandbox","--disable-gpu"])
+            hti.screenshot(html_str=html, save_as="screener.png", size=(700, 1000))
+            png_path = os.path.join(tmpdir, "screener.png")
+            if not os.path.exists(png_path):
+                return None
+            with open(png_path, "rb") as f:
+                buf = io.BytesIO(f.read())
+            buf.seek(0)
+            return buf
+
+    except Exception as e:
+        log.error(f"generate_screener_image error: {e}")
+        return None
+
+
+# ══════════════════════════════════════════════════════════════
 # PIVOT ARROW SCREENER — Scan saham yang harga menyentuh
 # Lower Trendline (panah ijo) atau Upper TL (panah kuning)
 # Multi-TF: 30M, 1H, 4H, D
@@ -3952,7 +4076,6 @@ async def mdp_auto_scan(context):
 def pivot_touch_scan_one(code, tf="D"):
     """
     Cek apakah harga saat ini dekat dengan pivot low (lower trendline).
-    ✅ FIX v2: threshold diperlebar, pisah lower/upper, multi-n detection.
     Return dict atau None.
     """
     import math
@@ -3967,94 +4090,75 @@ def pivot_touch_scan_one(code, tf="D"):
         price  = float(closes[-1])
         if math.isnan(price) or price <= 0: return None
 
-        # ✅ FIX: Coba beberapa window n untuk dapat trendline terbaik
-        best_lower = None
-        best_upper = None
+        tl = detect_trendlines(highs, lows, n=min(len(highs), 30))
+        if not tl: return None
 
-        for n_window in [20, 30, 40, 50]:
-            if len(highs) < n_window: continue
-            tl = detect_trendlines(highs, lows, n=n_window)
-            if not tl: continue
+        result = None
 
-            n_bars = n_window
+        # ── Cek Lower TL (panah ijo) ── harga dekat ATAU baru break dari pivot low
+        if "lower" in tl:
+            lo = tl["lower"]
+            n_bars = min(len(highs), 30)
+            tl_val = lo["slope"] * (n_bars - 1) + lo["intercept"]
+            # Hitung juga TL value 3 candle lalu (untuk deteksi baru break)
+            tl_val_prev = lo["slope"] * (n_bars - 4) + lo["intercept"]
+            prev_close  = float(closes[-4]) if len(closes) >= 4 else price
 
-            # ── Cek Lower TL (panah ijo) ──
-            if best_lower is None and "lower" in tl:
-                lo = tl["lower"]
-                tl_val = lo["slope"] * (n_bars - 1) + lo["intercept"]
-                tl_val_prev = lo["slope"] * (n_bars - 4) + lo["intercept"]
-                prev_close  = float(closes[-4]) if len(closes) >= 4 else price
+            # Kondisi 1: Harga mepet lower TL (dalam 5%) — touch klasik
+            touching = tl_val > 0 and abs(price - tl_val) / tl_val < 0.05
+            # Kondisi 2: Baru break ke atas lower TL (sebelumnya di bawah/mepet, sekarang naik)
+            breakout = (tl_val > 0 and tl_val_prev > 0
+                        and prev_close <= tl_val_prev * 1.02   # sebelumnya di bawah TL
+                        and price > tl_val * 1.00              # sekarang di atas TL
+                        and price <= tl_val * 1.15             # tapi belum terlalu jauh (max +15%)
+                        and r["chg"] > 1.0)                    # ada kenaikan signifikan hari ini
 
-                if tl_val <= 0: pass
-                else:
-                    pct_diff = abs(price - tl_val) / tl_val
-                    # ✅ FIX: threshold 8% (dari 5%) agar ESSA/JARR kedetect
-                    touching = pct_diff < 0.08
-                    # Breakout: sebelumnya di bawah TL, sekarang break ke atas
-                    breakout = (tl_val_prev > 0
-                                and prev_close <= tl_val_prev * 1.03
-                                and price > tl_val * 1.00
-                                and price <= tl_val * 1.20
-                                and r["chg"] > 0.5)
+            if tl_val > 0 and (touching or breakout):
+                touch_type = "lower_break" if breakout else "lower"
+                result = {
+                    "code":    code.upper(),
+                    "ticker":  r["ticker"],
+                    "tf":      tf,
+                    "price":   price,
+                    "chg":     r["chg"],
+                    "score":   r["score"],
+                    "signal":  r["sigs"][0].split("-")[0].strip() if r["sigs"] else "No Signal",
+                    "touch":   "lower",   # panah ijo
+                    "touch_type": touch_type,
+                    "tl_val":  round(tl_val, 0),
+                    "rsi":     r.get("rsi", 50),
+                }
 
-                    if touching or breakout:
-                        touch_type = "lower_break" if breakout else "lower"
-                        best_lower = {
-                            "code":       code.upper(),
-                            "ticker":     r["ticker"],
-                            "tf":         tf,
-                            "price":      price,
-                            "chg":        r["chg"],
-                            "score":      r["score"],
-                            "signal":     r["sigs"][0].split("-")[0].strip() if r["sigs"] else "No Signal",
-                            "touch":      "lower",
-                            "touch_type": touch_type,
-                            "tl_val":     round(tl_val, 0),
-                            "pct_diff":   round(pct_diff * 100, 1),
-                            "rsi":        r.get("rsi", 50),
-                            "n_window":   n_window,
-                        }
+        # ── Cek Upper TL (panah kuning) ── harga dekat pivot high
+        if result is None and "upper" in tl:
+            up = tl["upper"]
+            tl_val = up["slope"] * (min(len(highs), 30) - 1) + up["intercept"]
+            if tl_val > 0 and abs(price - tl_val) / tl_val < 0.025:
+                result = {
+                    "code":    code.upper(),
+                    "ticker":  r["ticker"],
+                    "tf":      tf,
+                    "price":   price,
+                    "chg":     r["chg"],
+                    "score":   r["score"],
+                    "signal":  r["sigs"][0].split("-")[0].strip() if r["sigs"] else "No Signal",
+                    "touch":   "upper",   # panah kuning
+                    "tl_val":  round(tl_val, 0),
+                    "rsi":     r.get("rsi", 50),
+                }
 
-            # ── Cek Upper TL (panah kuning) ──
-            if best_upper is None and "upper" in tl:
-                up = tl["upper"]
-                tl_val = up["slope"] * (n_bars - 1) + up["intercept"]
-                if tl_val > 0:
-                    pct_diff = abs(price - tl_val) / tl_val
-                    if pct_diff < 0.04:  # ✅ FIX: 2.5% → 4%
-                        best_upper = {
-                            "code":     code.upper(),
-                            "ticker":   r["ticker"],
-                            "tf":       tf,
-                            "price":    price,
-                            "chg":      r["chg"],
-                            "score":    r["score"],
-                            "signal":   r["sigs"][0].split("-")[0].strip() if r["sigs"] else "No Signal",
-                            "touch":    "upper",
-                            "tl_val":   round(tl_val, 0),
-                            "pct_diff": round(pct_diff * 100, 1),
-                            "rsi":      r.get("rsi", 50),
-                            "n_window": n_window,
-                        }
-
-            if best_lower: break  # sudah dapat lower, stop loop
-
-        # Prioritas: lower > upper
-        return best_lower or best_upper
-
+        return result
     except:
         return None
 
 
 def pivot_scan_multi_tf(stock_list, tfs=None, max_workers=12):
-    """Scan pivot touch multi-TF secara paralel.
-    ✅ FIX v2: Dedup per saham (1 saham max 1x per touch type), sort by pct_diff.
-    """
+    """Scan pivot touch multi-TF secara paralel."""
     if tfs is None:
         tfs = ["30M", "1H", "4H", "D"]
     pairs = [(c, tf) for c in stock_list for tf in tfs]
-    raw_lower = []
-    raw_upper = []
+    results_lower = []  # panah ijo
+    results_upper = []  # panah kuning
 
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         futures = {ex.submit(pivot_touch_scan_one, c, tf): (c, tf) for c, tf in pairs}
@@ -4062,25 +4166,12 @@ def pivot_scan_multi_tf(stock_list, tfs=None, max_workers=12):
             try:
                 r = f.result(timeout=20)
                 if r:
-                    if r["touch"] == "lower": raw_lower.append(r)
-                    else: raw_upper.append(r)
+                    if r["touch"] == "lower": results_lower.append(r)
+                    else: results_upper.append(r)
             except: pass
 
-    # ✅ FIX: Dedup — per saham ambil TF terbaik (pct_diff terkecil = paling mepet TL)
-    def dedup_by_code(results):
-        seen = {}
-        for r in results:
-            code = r["code"]
-            if code not in seen or r.get("pct_diff", 99) < seen[code].get("pct_diff", 99):
-                seen[code] = r
-        return list(seen.values())
-
-    results_lower = dedup_by_code(raw_lower)
-    results_upper = dedup_by_code(raw_upper)
-
-    # Sort: score tertinggi, lalu pct_diff terkecil (paling mepet TL)
-    results_lower.sort(key=lambda x: (-x["score"], x.get("pct_diff", 99)))
-    results_upper.sort(key=lambda x: (-x["score"], x.get("pct_diff", 99)))
+    results_lower.sort(key=lambda x: x["score"], reverse=True)
+    results_upper.sort(key=lambda x: x["score"], reverse=True)
     return results_lower, results_upper
 
 
@@ -4147,8 +4238,16 @@ async def pivot_cmd(u, c):
 
     await m.edit_text(chr(10).join(lines), parse_mode="Markdown")
 
-    # Kirim chart top pick panah ijo
-    if lower_res:
+    # ✅ Kirim screener table image (HTML → PNG)
+    loop = asyncio.get_event_loop()
+    img_buf = await loop.run_in_executor(
+        None, generate_screener_image, lower_res[:12], upper_res[:8], title, label
+    )
+    if img_buf:
+        await u.message.reply_photo(photo=img_buf,
+            caption=f"📊 {flag} Pivot Screener | {now_str}")
+    elif lower_res:
+        # Fallback: kirim chart saham terbaik kalau image gagal
         best = lower_res[0]
         buf, _ = generate_chart(best["code"], best["tf"])
         if buf:
@@ -4174,13 +4273,15 @@ async def pivot_auto_scan(context):
         stocks_to_scan += IDX_STOCKS
     if is_us_market_open():
         stocks_to_scan += US_STOCKS[:40]
-
     if not stocks_to_scan: return
 
     lower_res, upper_res = pivot_scan_multi_tf(stocks_to_scan)
     if not lower_res: return
 
     now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+    market_label = "IDX" if is_idx_market_open() else "US"
+
+    # ── Teks singkat ──
     lines = [
         "🟢 *AUTO ALERT — PANAH IJO TERDETEKSI!*",
         f"🕐 {now_str}",
@@ -4188,26 +4289,32 @@ async def pivot_auto_scan(context):
     ]
     for r in lower_res[:8]:
         ticker = r.get("ticker", r["code"])
-        is_idr_stock = ticker.endswith(".JK")
-        px   = f"Rp {r['price']:,.0f}" if is_idr_stock else f"${r['price']:,.2f}"
+        is_idr_s = ticker.endswith(".JK")
+        px   = f"Rp {r['price']:,.0f}" if is_idr_s else f"${r['price']:,.2f}"
         chg  = f"{r['chg']:+.1f}%"
         icon = "🚀" if r.get("touch_type") == "lower_break" else "✅"
         tag  = " BREAK!" if r.get("touch_type") == "lower_break" else ""
-        pct  = f" ({r.get('pct_diff', 0):.1f}% from TL)" if r.get("pct_diff") else ""
+        pct  = f" ({r.get('pct_diff',0):.1f}%)" if r.get("pct_diff") else ""
         lines.append(
-            f"{icon} *{r['code']}* TF:`{r['tf']}` `{px}` {chg}{tag} "
+            f"{icon} *{r['code']}* `{r['tf']}` `{px}` {chg}{tag} "
             f"| Score:`{r['score']}/8` | RSI:`{r['rsi']:.0f}`{pct}"
         )
     lines += ["━━━━━━━━━━━━━━━━━━━━",
-              "✅ = Harga mepet Lower TL (bounce) | 🚀 = Baru break dari Lower TL!"]
+              "✅ = Mepet Lower TL | 🚀 = Break Lower TL"]
 
     bot = context.bot
     for uid in auto_users:
         try:
             await bot.send_message(int(uid), chr(10).join(lines), parse_mode="Markdown")
 
-            if lower_res:
-                # ✅ FIX: Prioritaskan IDX saat IDX open, US saat US open
+            # ── Kirim screener table image ──
+            img_buf = generate_screener_image(lower_res[:12], upper_res[:8],
+                                              "PIVOT ARROW SCREENER", market_label)
+            if img_buf:
+                await bot.send_photo(int(uid), photo=img_buf,
+                    caption=f"📊 Pivot Screener {market_label} | {now_str}")
+            else:
+                # Fallback chart — anti spam: cek saham prioritas + 2 jam cooldown
                 if is_idx_market_open():
                     idx_hits = [r for r in lower_res if r["ticker"].endswith(".JK")]
                     best = idx_hits[0] if idx_hits else lower_res[0]
@@ -4215,9 +4322,8 @@ async def pivot_auto_scan(context):
                     us_hits = [r for r in lower_res if not r["ticker"].endswith(".JK")]
                     best = us_hits[0] if us_hits else lower_res[0]
 
-                # ✅ FIX: Anti-spam — jangan kirim chart yang sama dalam 2 jam
                 last = _last_pivot_chart_sent.get(uid, {})
-                same = (last.get("code") == best["code"] and last.get("tf") == best["tf"])
+                same  = (last.get("code") == best["code"] and last.get("tf") == best["tf"])
                 stale = (datetime.now().timestamp() - last.get("ts", 0)) > 7200
                 if not same or stale:
                     buf, _ = generate_chart(best["code"], best["tf"])
@@ -4226,7 +4332,7 @@ async def pivot_auto_scan(context):
                         is_idr_b = ticker_b.endswith(".JK")
                         px_b = f"Rp {best['price']:,.0f}" if is_idr_b else f"${best['price']:,.2f}"
                         await bot.send_photo(int(uid), photo=buf,
-                            caption=f"🟢 PANAH IJO: {best['code']} TF:{best['tf']} | {px_b} | {now_str}")
+                            caption=f"🟢 TOP PICK: {best['code']} TF:{best['tf']} | {px_b} | {now_str}")
                         _last_pivot_chart_sent[uid] = {
                             "code": best["code"], "tf": best["tf"],
                             "ts": datetime.now().timestamp()
