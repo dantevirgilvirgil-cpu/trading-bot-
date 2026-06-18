@@ -2290,8 +2290,17 @@ async def doji_cmd(u,c):
     try:
         results = await asyncio.get_event_loop().run_in_executor(
             None, doji_scan_all_tf, stock_list)
-        msg = fmt_doji_msg(results, market_name)
-        await m.edit_text(msg, parse_mode="Markdown")
+        # ✅ Kirim image screener dulu
+        img_buf = generate_doji_image(results, market_name)
+        if img_buf:
+            await m.delete()
+            await u.message.reply_photo(
+                photo=img_buf,
+                caption=f"🕯 *DOJI BULLISH REVERSAL — {'🇺🇸' if market=='us' else '🇮🇩'} {market_name}*\n{fmt_now()}",
+                parse_mode="Markdown")
+        else:
+            msg = fmt_doji_msg(results, market_name)
+            await m.edit_text(msg, parse_mode="Markdown")
         # Kirim chart saham doji terbaik (prioritas 4H lalu D lalu 1H)
         best = None; best_tf = "D"
         for tf in ["4H","D","1H"]:
@@ -2473,8 +2482,19 @@ async def volmom_cmd(u, c):
         parse_mode="Markdown")
     results = await asyncio.get_event_loop().run_in_executor(
         None, volmom_screener, stocks)
-    msg = fmt_volmom_msg(results, flag)
-    await m.edit_text(msg, parse_mode="Markdown")
+    # ✅ Kirim image screener dulu
+    img_buf = generate_volmom_image(results, market.upper())
+    mkt_label = "🇺🇸 US" if market == "us" else "🇮🇩 IDX"
+    now_str = fmt_now()
+    if img_buf:
+        await m.delete()
+        await u.message.reply_photo(
+            photo=img_buf,
+            caption=f"🌊 *VOLUME MOMENTUM SCREENER — {mkt_label}*\n{now_str}",
+            parse_mode="Markdown")
+    else:
+        msg = fmt_volmom_msg(results, flag)
+        await m.edit_text(msg, parse_mode="Markdown")
     # Kirim chart saham teratas kalau ada
     if results:
         best = results[0]
@@ -2486,7 +2506,7 @@ async def volmom_cmd(u, c):
                 caption=(f"🌊 TOP VOLMOM: *{best['code']}* | `{px}` {best['chg']:+.2f}%\n"
                          f"5M:`{best['vr_5m']:.1f}x` 15M:`{best['vr_15m']:.1f}x` "
                          f"30M:`{best['vr_30m']:.1f}x` 1H:`{best['vr_1h']:.1f}x`\n"
-                         f"MomScore:`{best['mom_score']}` | {fmt_now()}"),
+                         f"MomScore:`{best['mom_score']}` | {now_str}"),
                 parse_mode="Markdown")
 
 async def volmom_auto_scan(context):
@@ -3533,8 +3553,17 @@ async def firstgreen_cmd(u, c):
     try:
         results = await asyncio.get_event_loop().run_in_executor(
             None, first_green_scan_multitf, stocks)
-        msg = fmt_first_green_msg(results, label)
-        await m.edit_text(msg, parse_mode="Markdown")
+        # ✅ Kirim image screener dulu
+        img_buf = generate_firstgreen_image(results, label)
+        if img_buf:
+            await m.delete()
+            await u.message.reply_photo(
+                photo=img_buf,
+                caption=f"🟢 *FIRST GREEN SCREENER — {flag} {label}*\n{fmt_now()}",
+                parse_mode="Markdown")
+        else:
+            msg = fmt_first_green_msg(results, label)
+            await m.edit_text(msg, parse_mode="Markdown")
 
         # Kirim chart saham first green terbaik (prioritas D → 4H → 1H → 30M)
         best = None; best_tf = "D"
@@ -3835,8 +3864,17 @@ async def mdp_cmd(u, c):
         loop = asyncio.get_event_loop()
         results = await loop.run_in_executor(
             None, lambda: mdp_scan(stocks, min_score=min_sc))
-        msg = fmt_mdp_msg(results, label, sess)
-        await m.edit_text(msg, parse_mode="Markdown")
+        # ✅ Kirim image screener dulu
+        img_buf = generate_mdp_image(results, label)
+        if img_buf:
+            await m.delete()
+            await u.message.reply_photo(
+                photo=img_buf,
+                caption=f"💧 *MDP MARKET DEPTH PRESSURE — {'🇺🇸' if market=='us' else '🇮🇩'} {label}* | {sess}\n{fmt_now()}",
+                parse_mode="Markdown")
+        else:
+            msg = fmt_mdp_msg(results, label, sess)
+            await m.edit_text(msg, parse_mode="Markdown")
         # Kirim chart top pick
         if results:
             best = results[0]
@@ -3952,12 +3990,12 @@ def generate_screener_image(lower_res, upper_res, title="PIVOT ARROW SCREENER", 
         if n_rows == 0:
             return None
 
-        row_h  = 0.38
-        hdr_h  = 0.70
-        sec_h  = 0.30
+        row_h  = 0.48   # ✅ naik dari 0.38 → lebih lega
+        hdr_h  = 0.80   # ✅ naik dari 0.70
+        sec_h  = 0.36   # ✅ naik dari 0.30
         n_secs = (1 if n_lower > 0 else 0) + (1 if n_upper > 0 else 0)
-        total_h = hdr_h + n_secs * sec_h + n_rows * row_h + 0.5
-        fig_w   = 9.0
+        total_h = hdr_h + n_secs * sec_h + n_rows * row_h + 0.6
+        fig_w   = 10.0  # ✅ naik dari 9.0 → lebih lebar
 
         fig, ax = plt.subplots(figsize=(fig_w, total_h))
         fig.patch.set_facecolor(BG)
@@ -3971,64 +4009,64 @@ def generate_screener_image(lower_res, upper_res, title="PIVOT ARROW SCREENER", 
 
         # HEADER
         y = total_h - 0.08
-        ax.add_patch(plt.Circle((0.18, y - 0.12), 0.07, color=GREEN, zorder=3))
-        ax.text(0.32, y - 0.06, "IDX QUANT  DANTEBADAI BOT",
-                color=GREEN, fontsize=9, fontweight="bold", va="top", ha="left", fontfamily="monospace")
-        ax.text(0.32, y - 0.26, f"{flag}  {title}",
-                color=SUBTEXT, fontsize=7.5, va="top", ha="left")
-        ax.text(fig_w - 0.15, y - 0.06, now_str,
-                color=CYAN, fontsize=7.5, va="top", ha="right", fontfamily="monospace")
+        ax.add_patch(plt.Circle((0.20, y - 0.14), 0.08, color=GREEN, zorder=3))
+        ax.text(0.36, y - 0.06, "IDX QUANT  DANTEBADAI BOT",
+                color=GREEN, fontsize=10.5, fontweight="bold", va="top", ha="left", fontfamily="monospace")  # ✅ naik dari 9
+        ax.text(0.36, y - 0.30, f"{flag}  {title}",
+                color=SUBTEXT, fontsize=8.5, va="top", ha="left")  # ✅ naik dari 7.5
+        ax.text(fig_w - 0.18, y - 0.06, now_str,
+                color=CYAN, fontsize=8.5, va="top", ha="right", fontfamily="monospace")  # ✅ naik dari 7.5
         ax.plot([0.1, fig_w - 0.1], [total_h - hdr_h + 0.05, total_h - hdr_h + 0.05],
                 color=BORDER, linewidth=0.8)
 
         COLS = [
-            ("#",       0.20, "center"),
-            ("SAHAM",   0.75, "left"),
-            ("HARGA",   2.55, "right"),
-            ("CHG",     3.45, "right"),
-            ("SCORE",   4.65, "right"),
-            ("RSI",     5.55, "right"),
-            ("TL DIST", 6.30, "right"),
-            ("TYPE",    7.20, "center"),
-            ("SIGNAL",  8.40, "right"),
+            ("#",       0.22, "center"),
+            ("SAHAM",   0.85, "left"),
+            ("HARGA",   2.90, "right"),
+            ("CHG",     3.90, "right"),
+            ("SCORE",   5.25, "right"),
+            ("RSI",     6.25, "right"),
+            ("TL DIST", 7.10, "right"),
+            ("TYPE",    8.10, "center"),
+            ("SIGNAL",  9.50, "right"),
         ]
 
         def draw_col_headers(y_top):
             for lbl, x, align in COLS:
-                ax.text(x, y_top, lbl, color=SUBTEXT, fontsize=6.5,
+                ax.text(x, y_top, lbl, color=SUBTEXT, fontsize=7.5,  # ✅ naik dari 6.5
                         fontweight="bold", va="top", ha=align, fontfamily="monospace")
-            ax.plot([0.1, fig_w - 0.1], [y_top - 0.18, y_top - 0.18],
+            ax.plot([0.1, fig_w - 0.1], [y_top - 0.20, y_top - 0.20],
                     color=BORDER, linewidth=0.6)
 
         def draw_section_label(y_top, label, color):
-            ax.text(0.15, y_top, label, color=color, fontsize=8,
+            ax.text(0.18, y_top, label, color=color, fontsize=9.5,  # ✅ naik dari 8
                     fontweight="bold", va="top", ha="left")
-            ax.plot([0.1, fig_w - 0.1], [y_top - 0.20, y_top - 0.20],
+            ax.plot([0.1, fig_w - 0.1], [y_top - 0.22, y_top - 0.22],
                     color=BORDER, linewidth=0.4, linestyle="--")
 
         def draw_score_dots(x_end, y_mid, score, max_s=8):
             col   = score_color(score)
-            dot_w = 0.085
-            gap   = 0.025
+            dot_w = 0.095  # ✅ naik dari 0.085
+            gap   = 0.028
             total_w = max_s * dot_w + (max_s - 1) * gap
             x0 = x_end - total_w
             for i in range(max_s):
                 xi = x0 + i * (dot_w + gap)
                 fc = col if i < score else BORDER
                 ax.add_patch(mpatches.FancyBboxPatch(
-                    (xi, y_mid - 0.055), dot_w, 0.11,
+                    (xi, y_mid - 0.065), dot_w, 0.13,
                     boxstyle="round,pad=0.01", facecolor=fc, edgecolor="none"))
-            ax.text(x_end + 0.05, y_mid, f"{score}/8",
-                    color=col, fontsize=6.5, va="center", ha="left", fontfamily="monospace")
+            ax.text(x_end + 0.06, y_mid, f"{score}/8",
+                    color=col, fontsize=7.5, va="center", ha="left", fontfamily="monospace")  # ✅ naik dari 6.5
 
         def draw_badge(x_cen, y_mid, touch_type):
             fg, bg = badge_color(touch_type)
             label  = "BREAK" if touch_type == "lower_break" else \
                      "UPPER" if touch_type == "upper"       else "TOUCH"
             ax.add_patch(mpatches.FancyBboxPatch(
-                (x_cen - 0.38, y_mid - 0.10), 0.76, 0.20,
-                boxstyle="round,pad=0.02", facecolor=bg, edgecolor=fg, linewidth=0.5))
-            ax.text(x_cen, y_mid, label, color=fg, fontsize=6,
+                (x_cen - 0.42, y_mid - 0.12), 0.84, 0.24,
+                boxstyle="round,pad=0.02", facecolor=bg, edgecolor=fg, linewidth=0.6))
+            ax.text(x_cen, y_mid, label, color=fg, fontsize=7.5,  # ✅ naik dari 6
                     fontweight="bold", va="center", ha="center")
 
         y_cur = total_h - hdr_h
@@ -4068,31 +4106,31 @@ def generate_screener_image(lower_res, upper_res, title="PIVOT ARROW SCREENER", 
                 tf      = r.get("tf", "D")
 
                 ax.text(COLS[0][1], y_mid, str(idx + 1),
-                        color=DIM, fontsize=7, va="center", ha="center", fontfamily="monospace")
+                        color=DIM, fontsize=8, va="center", ha="center", fontfamily="monospace")  # ✅ naik dari 7
                 ax.text(COLS[1][1], y_mid + 0.04, r["code"],
-                        color=TEXT, fontsize=8.5, fontweight="bold", va="center", ha="left")
+                        color=TEXT, fontsize=10, fontweight="bold", va="center", ha="left")  # ✅ naik dari 8.5
                 ax.add_patch(mpatches.FancyBboxPatch(
-                    (COLS[1][1] + 0.55, y_mid - 0.06), 0.34, 0.15,
+                    (COLS[1][1] + 0.65, y_mid - 0.07), 0.38, 0.17,
                     boxstyle="round,pad=0.01", facecolor=BORDER, edgecolor="none"))
-                ax.text(COLS[1][1] + 0.72, y_mid + 0.015, tf,
-                        color=SUBTEXT, fontsize=5.5, va="center", ha="center", fontfamily="monospace")
+                ax.text(COLS[1][1] + 0.84, y_mid + 0.015, tf,
+                        color=SUBTEXT, fontsize=6.5, va="center", ha="center", fontfamily="monospace")  # ✅ naik dari 5.5
                 ax.text(COLS[2][1], y_mid, px_str,
-                        color="#cbd5e0", fontsize=7.5, fontweight="bold",
-                        va="center", ha="right", fontfamily="monospace")
+                        color="#cbd5e0", fontsize=8.5, fontweight="bold",
+                        va="center", ha="right", fontfamily="monospace")  # ✅ naik dari 7.5
                 ax.text(COLS[3][1], y_mid, chg_str,
-                        color=chg_color(chg), fontsize=7.5, fontweight="bold",
-                        va="center", ha="right", fontfamily="monospace")
+                        color=chg_color(chg), fontsize=8.5, fontweight="bold",
+                        va="center", ha="right", fontfamily="monospace")  # ✅ naik dari 7.5
                 draw_score_dots(COLS[4][1], y_mid, sc)
                 ax.text(COLS[5][1], y_mid, f"{rsi:.0f}",
-                        color=rsi_color(rsi), fontsize=7.5,
-                        va="center", ha="right", fontfamily="monospace")
+                        color=rsi_color(rsi), fontsize=8.5,
+                        va="center", ha="right", fontfamily="monospace")  # ✅ naik dari 7.5
                 ax.text(COLS[6][1], y_mid, f"{dist:.1f}%",
-                        color=ORANGE, fontsize=7,
-                        va="center", ha="right", fontfamily="monospace")
+                        color=ORANGE, fontsize=8,
+                        va="center", ha="right", fontfamily="monospace")  # ✅ naik dari 7
                 draw_badge(COLS[7][1], y_mid, ttype)
                 ax.text(COLS[8][1], y_mid, signal,
-                        color=CYAN, fontsize=6.5,
-                        va="center", ha="right", fontfamily="monospace")
+                        color=CYAN, fontsize=7.5,
+                        va="center", ha="right", fontfamily="monospace")  # ✅ naik dari 6.5
                 ax.plot([0.1, fig_w - 0.1],
                         [y_cur - row_h + 0.05, y_cur - row_h + 0.05],
                         color=BORDER, linewidth=0.3)
@@ -4101,12 +4139,12 @@ def generate_screener_image(lower_res, upper_res, title="PIVOT ARROW SCREENER", 
             y_cur -= 0.05
 
         # FOOTER
-        ax.plot([0.1, fig_w - 0.1], [0.32, 0.32], color=BORDER, linewidth=0.6)
-        ax.text(0.15, 0.24,
+        ax.plot([0.1, fig_w - 0.1], [0.38, 0.38], color=BORDER, linewidth=0.6)
+        ax.text(0.18, 0.28,
                 "TOUCH=mepet Lower TL  |  BREAK=break Lower TL  |  UPPER=mepet Upper TL",
-                color=DIM, fontsize=6, va="top", ha="left")
-        ax.text(fig_w - 0.15, 0.24, "Dantebadai Bot v2",
-                color=DIM, fontsize=6, va="top", ha="right")
+                color=DIM, fontsize=7, va="top", ha="left")  # ✅ naik dari 6
+        ax.text(fig_w - 0.18, 0.28, "Dantebadai Bot v2",
+                color=DIM, fontsize=7, va="top", ha="right")  # ✅ naik dari 6
 
         plt.tight_layout(pad=0)
         buf = io.BytesIO()
@@ -4119,6 +4157,371 @@ def generate_screener_image(lower_res, upper_res, title="PIVOT ARROW SCREENER", 
     except Exception as e:
         log.error(f"generate_screener_image error: {e}")
         return None
+
+
+# ══════════════════════════════════════════════════════════════
+# GENERIC SCREENER IMAGE GENERATOR
+# Dipakai oleh: Volmom, Doji, FirstGreen, MDP screeners
+# ══════════════════════════════════════════════════════════════
+
+def generate_generic_screener_image(rows, cols, title="SCREENER", market="IDX", footer_note=""):
+    """
+    Generic image screener table — style sama dgn Pivot Screener.
+    rows : list of dict, tiap dict punya key sesuai cols
+    cols : list of tuple (label, key, width_ratio, align, color_fn)
+           color_fn(val) -> hex color string, atau None untuk default TEXT
+    title: judul screener
+    market: "IDX" atau "US"
+    footer_note: teks keterangan di bawah
+    Return: BytesIO atau None
+    """
+    try:
+        import matplotlib.patches as mpatches
+
+        # ── Palette (sama dgn Pivot) ──
+        BG      = "#0d0f14"
+        SURFACE = "#13161e"
+        TEXT    = "#e2e8f0"
+        SUBTEXT = "#718096"
+        DIM     = "#4a5568"
+        BORDER  = "#2d3748"
+        GREEN   = "#48bb78"
+        RED     = "#fc8181"
+        ORANGE  = "#ed8936"
+        YELLOW  = "#ecc94b"
+        CYAN    = "#76e4f7"
+        BLUE    = "#63b3ed"
+        PURPLE  = "#b794f4"
+
+        flag = "🇮🇩 IDX" if market == "IDX" else "🇺🇸 US"
+        now_str = datetime.now(WIB).strftime("%d-%b-%Y %H:%M WIB")
+
+        if not rows:
+            return None
+
+        max_rows = 20
+        rows = rows[:max_rows]
+        n    = len(rows)
+
+        row_h  = 0.48
+        hdr_h  = 0.80
+        foot_h = 0.52
+        total_h = hdr_h + 0.36 + n * row_h + foot_h + 0.3
+        fig_w   = 10.0
+
+        fig, ax = plt.subplots(figsize=(fig_w, total_h))
+        fig.patch.set_facecolor(BG)
+        ax.set_facecolor(BG)
+        ax.set_xlim(0, fig_w)
+        ax.set_ylim(0, total_h)
+        ax.axis("off")
+
+        # ── Header ──
+        y = total_h - 0.08
+        ax.add_patch(plt.Circle((0.20, y - 0.14), 0.08, color=GREEN, zorder=3))
+        ax.text(0.36, y - 0.06, "IDX QUANT  DANTEBADAI BOT",
+                color=GREEN, fontsize=10.5, fontweight="bold", va="top", ha="left", fontfamily="monospace")
+        ax.text(0.36, y - 0.30, f"{flag}  {title}",
+                color=SUBTEXT, fontsize=8.5, va="top", ha="left")
+        ax.text(fig_w - 0.18, y - 0.06, now_str,
+                color=CYAN, fontsize=8.5, va="top", ha="right", fontfamily="monospace")
+        ax.plot([0.1, fig_w - 0.1], [y - 0.48, y - 0.48], color=BORDER, linewidth=0.8)
+
+        # ── Col headers ──
+        # Build x positions dari width ratios
+        total_ratio = sum(c[2] for c in cols)
+        margin_l = 0.18
+        usable_w = fig_w - 0.36
+        x_pos = []
+        xc = margin_l
+        for c in cols:
+            x_pos.append(xc)
+            xc += c[2] / total_ratio * usable_w
+
+        y_hdr = total_h - hdr_h - 0.06
+        for i, (lbl, key, wr, align, cfn) in enumerate(cols):
+            ax.text(x_pos[i], y_hdr, lbl,
+                    color=SUBTEXT, fontsize=7.5, fontweight="bold",
+                    va="top", ha=align, fontfamily="monospace")
+        ax.plot([0.1, fig_w - 0.1], [y_hdr - 0.20, y_hdr - 0.20], color=BORDER, linewidth=0.6)
+
+        # ── Rows ──
+        y_cur = y_hdr - 0.24
+
+        for idx, row in enumerate(rows):
+            y_mid = y_cur - row_h / 2
+
+            # Alternating row bg
+            if idx % 2 == 0:
+                ax.add_patch(mpatches.FancyBboxPatch(
+                    (0.1, y_cur - row_h + 0.04), fig_w - 0.2, row_h - 0.06,
+                    boxstyle="round,pad=0.01", facecolor=SURFACE, edgecolor="none", zorder=0))
+
+            for i, (lbl, key, wr, align, cfn) in enumerate(cols):
+                val = row.get(key, "")
+                val_str = str(val) if val is not None else ""
+                color = cfn(val) if cfn and val is not None else TEXT
+                # Nomor urut kolom pertama selalu DIM
+                if i == 0:
+                    color = DIM
+
+                # Badge khusus untuk kolom TYPE/TF
+                if key in ("tf", "type_badge") and val_str:
+                    ax.add_patch(mpatches.FancyBboxPatch(
+                        (x_pos[i] - 0.02, y_mid - 0.12), len(val_str)*0.09 + 0.18, 0.24,
+                        boxstyle="round,pad=0.02", facecolor=BORDER, edgecolor=CYAN, linewidth=0.5))
+                    ax.text(x_pos[i] + len(val_str)*0.045 + 0.07, y_mid, val_str,
+                            color=CYAN, fontsize=7, fontweight="bold", va="center", ha="center")
+                    continue
+
+                # Score bar (key == "score_bar")
+                if key == "score_bar":
+                    score = int(val) if val else 0
+                    max_s = row.get("score_max", 10)
+                    dot_w = 0.09; gap = 0.025
+                    total_dw = max_s * dot_w + (max_s - 1) * gap
+                    x0 = x_pos[i]
+                    for si in range(max_s):
+                        xi = x0 + si * (dot_w + gap)
+                        if score >= 8:     sc_col = RED
+                        elif score >= 6:   sc_col = ORANGE
+                        elif score >= 4:   sc_col = YELLOW
+                        else:              sc_col = GREEN
+                        fc = sc_col if si < score else BORDER
+                        ax.add_patch(mpatches.FancyBboxPatch(
+                            (xi, y_mid - 0.065), dot_w, 0.13,
+                            boxstyle="round,pad=0.01", facecolor=fc, edgecolor="none"))
+                    ax.text(x0 + total_dw + 0.07, y_mid, f"{score}/{max_s}",
+                            color=sc_col if score else DIM, fontsize=7.5,
+                            va="center", ha="left", fontfamily="monospace")
+                    continue
+
+                fs = 8.5
+                fw = "normal"
+                if i == 1:  # nama saham → bold & lebih besar
+                    fs = 10; fw = "bold"
+
+                ax.text(x_pos[i], y_mid, val_str,
+                        color=color, fontsize=fs, fontweight=fw,
+                        va="center", ha=align, fontfamily="monospace")
+
+            ax.plot([0.1, fig_w - 0.1],
+                    [y_cur - row_h + 0.05, y_cur - row_h + 0.05],
+                    color=BORDER, linewidth=0.3)
+            y_cur -= row_h
+
+        # ── Footer ──
+        ax.plot([0.1, fig_w - 0.1], [0.38, 0.38], color=BORDER, linewidth=0.6)
+        ax.text(0.18, 0.28, footer_note or "Dantebadai Bot v2",
+                color=DIM, fontsize=7, va="top", ha="left")
+        ax.text(fig_w - 0.18, 0.28, "Dantebadai Bot v2",
+                color=DIM, fontsize=7, va="top", ha="right")
+
+        plt.tight_layout(pad=0)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=150, bbox_inches="tight",
+                    facecolor=BG, edgecolor="none")
+        plt.close(fig)
+        buf.seek(0)
+        return buf
+
+    except Exception as e:
+        log.error(f"generate_generic_screener_image error: {e}")
+        return None
+
+
+def generate_volmom_image(results, market="IDX"):
+    """Generate image untuk Volmom Screener"""
+    if not results: return None
+    GREEN  = "#48bb78"; RED = "#fc8181"; ORANGE = "#ed8936"
+    YELLOW = "#ecc94b"; DIM = "#4a5568"; CYAN = "#76e4f7"
+    TEXT   = "#e2e8f0"
+
+    def chg_col(v):
+        try: return GREEN if float(v.replace("%","").replace("+","")) >= 0 else RED
+        except: return TEXT
+
+    def vr_col(v):
+        try:
+            f = float(str(v).replace("x",""))
+            if f >= 3.0: return RED
+            if f >= 2.0: return ORANGE
+            if f >= 1.5: return YELLOW
+            return DIM
+        except: return TEXT
+
+    rows = []
+    for i, r in enumerate(results[:15], 1):
+        is_idr = r["ticker"].endswith(".JK")
+        px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+        chg_s = f"{r['chg']:+.2f}%"
+        rows.append({
+            "no":    str(i),
+            "code":  r["code"],
+            "harga": px,
+            "chg":   chg_s,
+            "5m":    f"{r['vr_5m']:.1f}x",
+            "15m":   f"{r['vr_15m']:.1f}x",
+            "30m":   f"{r['vr_30m']:.1f}x",
+            "1h":    f"{r['vr_1h']:.1f}x",
+            "score_bar": r["mom_score"],
+            "score_max": 8,
+        })
+
+    cols = [
+        ("#",      "no",        0.4, "center", None),
+        ("SAHAM",  "code",      1.4, "left",   None),
+        ("HARGA",  "harga",     1.8, "right",  None),
+        ("CHG",    "chg",       1.0, "right",  lambda v: GREEN if "+" in str(v) else RED),
+        ("5M",     "5m",        0.9, "right",  lambda v: vr_col(v)),
+        ("15M",    "15m",       0.9, "right",  lambda v: vr_col(v)),
+        ("30M",    "30m",       0.9, "right",  lambda v: vr_col(v)),
+        ("1H",     "1h",        0.9, "right",  lambda v: vr_col(v)),
+        ("SCORE",  "score_bar", 2.0, "left",   None),
+    ]
+    return generate_generic_screener_image(
+        rows, cols,
+        title="VOLUME MOMENTUM SCREENER",
+        market=market,
+        footer_note="VR = Vol Ratio vs avg | 🟡≥1.5x 🟠≥2x 🔴≥3x — makin tinggi makin kuat"
+    )
+
+
+def generate_doji_image(results_by_tf, market="IDX"):
+    """Generate image untuk Doji Screener — gabung semua TF"""
+    GREEN = "#48bb78"; RED = "#fc8181"; ORANGE = "#ed8936"
+    YELLOW = "#ecc94b"; CYAN = "#76e4f7"; TEXT = "#e2e8f0"; DIM = "#4a5568"
+
+    rows = []
+    for tf in ["4H", "D", "1H"]:
+        hits = results_by_tf.get(tf, [])
+        for r in hits[:6]:
+            is_idr = r["ticker"].endswith(".JK")
+            px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+            rows.append({
+                "no":    str(len(rows)+1),
+                "code":  r["code"],
+                "tf":    tf,
+                "harga": px,
+                "chg":   f"{r['chg']:+.2f}%",
+                "rsi":   f"{r['rsi']:.0f}",
+                "stoch": f"{r['stoch']:.0f}",
+                "score_bar": r["bull_score"],
+                "score_max": 10,
+                "type":  r.get("doji_type","Doji")[:8],
+            })
+        if len(rows) >= 18: break
+
+    if not rows: return None
+
+    cols = [
+        ("#",      "no",        0.4, "center", None),
+        ("SAHAM",  "code",      1.4, "left",   None),
+        ("TF",     "tf",        0.6, "center", None),
+        ("HARGA",  "harga",     1.8, "right",  None),
+        ("CHG",    "chg",       0.9, "right",  lambda v: GREEN if "+" in str(v) else RED),
+        ("RSI",    "rsi",       0.8, "right",  lambda v: RED if float(v or 50) > 70 else GREEN if float(v or 50) < 30 else TEXT),
+        ("STOCH",  "stoch",     0.8, "right",  lambda v: RED if float(v or 50) > 80 else GREEN if float(v or 50) < 20 else TEXT),
+        ("SCORE",  "score_bar", 2.0, "left",   None),
+        ("TYPE",   "type",      1.5, "right",  lambda v: YELLOW),
+    ]
+    return generate_generic_screener_image(
+        rows, cols,
+        title="DOJI BULLISH REVERSAL SCREENER",
+        market=market,
+        footer_note="Doji = potensi reversal | RSI<30 oversold | Stoch<20 = kuat"
+    )
+
+
+def generate_firstgreen_image(results_by_tf, market="IDX"):
+    """Generate image untuk FirstGreen Screener — gabung semua TF"""
+    GREEN = "#48bb78"; RED = "#fc8181"; ORANGE = "#ed8936"
+    YELLOW = "#ecc94b"; TEXT = "#e2e8f0"
+
+    rows = []
+    for tf in ["D", "4H", "1H", "30M"]:
+        hits = results_by_tf.get(tf, [])
+        for r in hits[:5]:
+            is_idr = r["ticker"].endswith(".JK")
+            px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+            rows.append({
+                "no":     str(len(rows)+1),
+                "code":   r["code"],
+                "tf":     tf,
+                "harga":  px,
+                "chg":    f"{r['chg']:+.2f}%",
+                "reds":   f"🔴×{r['red_count']}",
+                "vol":    f"{r['vol_ratio']:.1f}x",
+                "rsi":    f"{r['rsi']:.0f}",
+                "score_bar": r["score"],
+                "score_max": 10,
+            })
+        if len(rows) >= 18: break
+
+    if not rows: return None
+
+    cols = [
+        ("#",      "no",        0.4, "center", None),
+        ("SAHAM",  "code",      1.4, "left",   None),
+        ("TF",     "tf",        0.6, "center", None),
+        ("HARGA",  "harga",     1.8, "right",  None),
+        ("CHG",    "chg",       0.9, "right",  lambda v: GREEN if "+" in str(v) else RED),
+        ("REDS",   "reds",      0.9, "center", lambda v: RED),
+        ("VOL",    "vol",       0.9, "right",  lambda v: ORANGE if float(str(v).replace("x","") or 1) >= 2 else GREEN if float(str(v).replace("x","") or 1) >= 1.5 else TEXT),
+        ("RSI",    "rsi",       0.8, "right",  lambda v: RED if float(v or 50) > 70 else GREEN if float(v or 50) < 30 else TEXT),
+        ("SCORE",  "score_bar", 2.0, "left",   None),
+    ]
+    return generate_generic_screener_image(
+        rows, cols,
+        title="FIRST GREEN SCREENER",
+        market=market,
+        footer_note="First Green = candle hijau pertama setelah ≥2 candle merah berturut-turut"
+    )
+
+
+def generate_mdp_image(results, market="IDX"):
+    """Generate image untuk MDP Screener"""
+    if not results: return None
+    GREEN = "#48bb78"; RED = "#fc8181"; ORANGE = "#ed8936"
+    YELLOW = "#ecc94b"; TEXT = "#e2e8f0"; CYAN = "#76e4f7"
+
+    def trend_str(t):
+        return "⬆UP" if t == "UP" else "⬇DN" if t == "DN" else "↔SW"
+
+    rows = []
+    for i, r in enumerate(results[:18], 1):
+        is_idr = r["ticker"].endswith(".JK")
+        px = f"Rp {r['price']:,.0f}" if is_idr else f"${r['price']:,.2f}"
+        rows.append({
+            "no":     str(i),
+            "code":   r["code"],
+            "harga":  px,
+            "chg":    f"{r['chg']:+.1f}%",
+            "mdp":    f"{r['mdp_pct']:+.1f}",
+            "cp":     f"{r['cp']:+.1f}",
+            "rsi":    f"{r['rsi']:.0f}",
+            "trend":  trend_str(r["trend"]),
+            "score_bar": r["score_mdp"],
+            "score_max": 10,
+        })
+
+    cols = [
+        ("#",      "no",        0.4, "center", None),
+        ("SAHAM",  "code",      1.4, "left",   None),
+        ("HARGA",  "harga",     1.8, "right",  None),
+        ("CHG",    "chg",       0.9, "right",  lambda v: GREEN if "+" in str(v) else RED),
+        ("MDP%",   "mdp",       0.9, "right",  lambda v: GREEN if float(v or 0) > 5 else RED if float(v or 0) < -5 else TEXT),
+        ("CP",     "cp",        0.9, "right",  lambda v: GREEN if float(v or 0) > 10 else RED if float(v or 0) < -10 else TEXT),
+        ("RSI",    "rsi",       0.8, "right",  lambda v: RED if float(v or 50) > 70 else GREEN if float(v or 50) < 30 else TEXT),
+        ("TREND",  "trend",     0.9, "center", lambda v: GREEN if "UP" in str(v) else RED if "DN" in str(v) else TEXT),
+        ("SCORE",  "score_bar", 2.0, "left",   None),
+    ]
+    return generate_generic_screener_image(
+        rows, cols,
+        title="MDP MARKET DEPTH PRESSURE SCREENER",
+        market=market,
+        footer_note="MDP%=net buy pressure | CP=candle pressure | Score=probabilitas naik (0-10)"
+    )
 
 
 # ══════════════════════════════════════════════════════════════
